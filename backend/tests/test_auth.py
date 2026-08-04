@@ -82,3 +82,31 @@ async def test_api_key_still_works(client, monkeypatch):
 async def test_post_records_stays_open(client, monkeypatch):
     r = await client.post("/api/v1/records", json={"type": "invoice", "data": {"n": 1}})
     assert r.status_code == 201
+
+
+async def test_admin_can_create_users(client, monkeypatch):
+    await _seed_admin(monkeypatch)
+    token = (await _login(client))["token"]
+    headers = {"X-Session-Token": token}
+
+    r = await client.post("/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123", "role": "viewer"}, headers=headers)
+    assert r.status_code == 201
+    assert r.json() == {"username": "dara", "role": "viewer"}
+
+    r = await client.post("/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123"}, headers=headers)
+    assert r.status_code == 409
+
+    # the new user can log in and read
+    body = await _login(client, "dara", "dara-pass-123")
+    assert body["user"] == {"username": "dara", "role": "viewer"}
+    assert (await client.get("/api/v1/records", headers={"X-Session-Token": body["token"]})).status_code == 200
+
+
+async def test_non_admin_cannot_create_users(client, monkeypatch):
+    await _seed_admin(monkeypatch)
+    admin_token = (await _login(client))["token"]
+    await client.post("/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123", "role": "viewer"}, headers={"X-Session-Token": admin_token})
+
+    viewer_token = (await _login(client, "dara", "dara-pass-123"))["token"]
+    r = await client.post("/api/v1/auth/users", json={"username": "bob", "password": "bob-pass-123"}, headers={"X-Session-Token": viewer_token})
+    assert r.status_code == 403
