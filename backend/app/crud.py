@@ -82,6 +82,8 @@ def to_out(rec: models.Record) -> schemas.RecordOut:
         edited_at=rec.edited_at,
         edited_by=rec.edited_by,
         edit_count=rec.edit_count,
+        source_model=rec.source_model,
+        source_system=rec.source_system,
     )
 
 

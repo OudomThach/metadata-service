@@ -97,6 +97,8 @@ class RecordOut(BaseModel):
     edited_at: dt.datetime | None
     edited_by: str | None
     edit_count: int
+    source_model: str | None = None
+    source_system: str | None = None
 
 
 class PageOut(BaseModel):
