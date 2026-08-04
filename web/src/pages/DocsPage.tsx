@@ -1,7 +1,7 @@
 const endpoints = [
   {
     method: "POST",
-    path: "/api/v1/records",
+    path: "/api-meta/api/v1/records",
     desc: "Ingest a record (open — no key needed). Client-supplied id is idempotent (409 on duplicate).",
     body: `{
   "id": "optional-client-id",
@@ -17,30 +17,30 @@ const endpoints = [
   },
   {
     method: "POST",
-    path: "/api/v1/auth/login",
+    path: "/api-meta/api/v1/auth/login",
     desc: "Sign in. Send one of the configured keys as password → returns the token for X-API-Key.",
     body: `{ "password": "<your-team-key>" }`,
   },
   {
     method: "GET",
-    path: "/api/v1/records?type=&domain=&status=&tag=&business_from=&business_to=&created_from=&created_to=&q=&page=1&page_size=50&sort=created_at:desc",
+    path: "/api-meta/api/v1/records?type=&domain=&status=&tag=&business_from=&business_to=&created_from=&created_to=&q=&page=1&page_size=50&sort=created_at:desc",
     desc: "List records with filters, pagination and sorting. Requires X-API-Key.",
   },
-  { method: "GET", path: "/api/v1/records/{id}", desc: "Fetch one record (full envelope + data). Requires X-API-Key." },
+  { method: "GET", path: "/api-meta/api/v1/records/{id}", desc: "Fetch one record (full envelope + data). Requires X-API-Key." },
   {
     method: "PATCH",
-    path: "/api/v1/records/{id}",
+    path: "/api-meta/api/v1/records/{id}",
     desc: "Edit data / business / status. Auto-updates audit: edited_at, edited_by, edit_count++, status→edited. Send X-Edited-By: user:<name>.",
     body: `{ "data": { "order_no": "INV-9999" }, "status": "verified" }`,
   },
-  { method: "DELETE", path: "/api/v1/records/{id}", desc: "Delete a record (audit entry is kept). Requires X-API-Key." },
+  { method: "DELETE", path: "/api-meta/api/v1/records/{id}", desc: "Delete a record (audit entry is kept). Requires X-API-Key." },
   {
     method: "GET",
-    path: "/api/v1/export?format=csv|json",
+    path: "/api-meta/api/v1/export?format=csv|json",
     desc: "Export filtered records. CSV is flattened for spreadsheets, JSON is the full envelope. Requires X-API-Key.",
   },
-  { method: "GET", path: "/api/v1/stats", desc: "Aggregates: totals by status / type / domain, per-day. Requires X-API-Key." },
-  { method: "GET", path: "/api/v1/meta", desc: "Distinct types and domains (for filter dropdowns). Requires X-API-Key." },
+  { method: "GET", path: "/api-meta/api/v1/stats", desc: "Aggregates: totals by status / type / domain, per-day. Requires X-API-Key." },
+  { method: "GET", path: "/api-meta/api/v1/meta", desc: "Distinct types and domains (for filter dropdowns). Requires X-API-Key." },
   { method: "GET", path: "/health", desc: "Liveness + DB check (open)." },
 ];
 
@@ -57,10 +57,10 @@ export default function DocsPage() {
       <h1 className="display mb-1">API Docs</h1>
       <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
         Interactive OpenAPI docs:{" "}
-        <a className="font-medium text-accent hover:underline" href="/api/docs" target="_blank" rel="noreferrer">
-          /api/docs
+        <a className="font-medium text-accent hover:underline" href="/api-meta/api-meta/api/docs" target="_blank" rel="noreferrer">
+          /api-meta/api/docs
         </a>{" "}
-        · spec: <code className="font-mono">/api/openapi.json</code>
+        · spec: <code className="font-mono">/api-meta/api/openapi.json</code>
       </p>
 
       <div className="panel p-5 mb-5">
@@ -70,8 +70,8 @@ export default function DocsPage() {
         </p>
         <pre className="mt-2 rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-xs text-accent">{`X-API-Key: <your-team-key>`}</pre>
         <p className="mt-2 text-xs text-slate-500">
-          Sign in first with <code className="font-mono">POST /api/v1/auth/login</code> (password = your key). The portal
-          stores the returned token. <code className="font-mono">POST /api/v1/records</code> is open by design so pipelines
+          Sign in first with <code className="font-mono">POST /api-meta/api/v1/auth/login</code> (password = your key). The portal
+          stores the returned token. <code className="font-mono">POST /api-meta/api/v1/records</code> is open by design so pipelines
           record without shipping keys in public code. Editing endpoints honor{" "}
           <code className="font-mono">X-Edited-By: user:&lt;name&gt;</code> for audit attribution.
         </p>

@@ -142,7 +142,7 @@ export default function App() {
             {user?.role && <span className="badge ml-1.5 border-accent/30 bg-accent/10 text-accent">{user.role}</span>}
           </p>
           <p className="px-1 text-[11px] text-slate-400">
-            API base: <code className="font-mono">/api/v1</code> · docs at <code className="font-mono">/api/docs</code>
+            API base: <code className="font-mono">/api-meta/api/v1</code> · docs at <code className="font-mono">/api/docs</code>
           </p>
         </div>
       </aside>

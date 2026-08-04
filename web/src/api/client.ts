@@ -61,7 +61,11 @@ export interface QueryParams {
   sort?: string;
 }
 
-const API = "/api/v1";
+// The portal is served at /portal on the shared Romdoul host, where the API
+// lives behind the /api-meta prefix (romdoul nginx → metadata-service). The
+// service also accepts /api-meta directly, so this one base works everywhere:
+// public netlify, localhost:8181/portal, and direct :8095.
+const API = "/api-meta/api/v1";
 const TOKEN_KEY = "metadata_token";
 const USER_KEY = "metadata_user";
 

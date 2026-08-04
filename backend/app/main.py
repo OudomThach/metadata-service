@@ -41,6 +41,18 @@ app.include_router(records.router)
 app.include_router(export.router)
 app.include_router(stats.router)
 
+
+@app.middleware("http")
+async def api_meta_alias(request, call_next):
+    # The portal is served under /portal on the shared Romdoul host, where the
+    # metadata API lives behind /api-meta (romdoul nginx). The same /api-meta
+    # prefix must also work when the service is hit directly (:8095), so the
+    # portal can use one base URL everywhere. Strip the prefix internally.
+    if request.url.path.startswith("/api-meta/"):
+        request.scope["path"] = request.url.path[len("/api-meta") :]
+        request.scope["raw_path"] = request.scope["path"].encode()
+    return await call_next(request)
+
 INDEX = os.path.join(settings.static_dir, "index.html")
 
 
