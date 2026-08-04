@@ -6,8 +6,8 @@ import StatusBadge from "../components/StatusBadge";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="card p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">{title}</div>
+    <div className="panel p-4">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
       {children}
     </div>
   );
@@ -20,7 +20,7 @@ function KV({ obj }: { obj: Record<string, unknown> | null | undefined }) {
       {Object.entries(obj).map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="text-xs text-slate-500 break-all">{k}</dt>
-          <dd className="text-sm text-slate-200 break-all">{typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
+          <dd className="text-sm text-slate-700 dark:text-slate-200 break-all">{typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
         </div>
       ))}
     </dl>
@@ -59,7 +59,7 @@ export default function RecordDetail() {
     },
   });
 
-  if (isLoading || !rec) return <div className="p-8 text-slate-400">Loading…</div>;
+  if (isLoading || !rec) return <div className="p-8 text-slate-500">Loading…</div>;
 
   const editData = () => {
     try {
@@ -75,7 +75,7 @@ export default function RecordDetail() {
     <div className="p-6 max-w-5xl">
       <div className="flex items-center gap-3 mb-5">
         <Link to="/records" className="btn-ghost">← Records</Link>
-        <h1 className="text-xl font-semibold text-slate-100 break-all">{rec.type}</h1>
+        <h1 className="display break-all">{rec.type}</h1>
         <StatusBadge status={rec.status} />
         <code className="text-xs text-slate-500 break-all">{rec.id}</code>
       </div>
@@ -87,7 +87,9 @@ export default function RecordDetail() {
         </Section>
         <Section title="Audit">
           <KV obj={rec.audit} />
-          <div className="mt-2 text-xs text-slate-500">created_by: {rec.created_by} · edited_by: {rec.edited_by ?? "—"} · edits: {rec.edit_count}</div>
+          <div className="mt-2 text-xs text-slate-500">
+            created_by: {rec.created_by} · edited_by: {rec.edited_by ?? "—"} · edits: {rec.edit_count}
+          </div>
         </Section>
         <Section title="Pipeline">
           <KV obj={rec.pipeline} />
@@ -101,11 +103,11 @@ export default function RecordDetail() {
       </div>
 
       <Section title="Data payload">
-        <pre className="text-xs text-slate-300 bg-base-900 rounded p-3 overflow-auto max-h-96 whitespace-pre-wrap break-all">
+        <pre className="font-mono text-xs text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-white/5 rounded-lg p-3 overflow-auto max-h-96 whitespace-pre-wrap break-all">
           {JSON.stringify(rec.data, null, 2)}
         </pre>
-        <div className="flex gap-2 mt-3">
-          <button className="btn-ghost" onClick={() => setDataJson(JSON.stringify(rec.data, null, 2))}>Edit data</button>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button className="btn-secondary" onClick={() => setDataJson(JSON.stringify(rec.data, null, 2))}>Edit data</button>
           {dataJson !== null && (
             <>
               <textarea
@@ -118,12 +120,17 @@ export default function RecordDetail() {
               <button className="btn-ghost" onClick={() => setDataJson(null)}>Cancel</button>
             </>
           )}
-          {saved && <span className="self-center text-xs text-emerald-400">Saved — audit updated, status → edited</span>}
+          {saved && <span className="self-center text-xs font-medium text-accent2">Saved — audit updated, status → edited</span>}
         </div>
       </Section>
 
       <div className="mt-4 flex justify-end">
-        <button className="btn-ghost text-red-400 hover:bg-red-500/10" onClick={() => { if (confirm("Delete this record?")) remove.mutate(); }}>
+        <button
+          className="btn-ghost text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+          onClick={() => {
+            if (confirm("Delete this record?")) remove.mutate();
+          }}
+        >
           Delete record
         </button>
       </div>
