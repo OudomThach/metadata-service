@@ -22,6 +22,7 @@ class CreateUserIn(BaseModel):
 
 
 class UserOut(BaseModel):
+    id: int
     username: str
     role: str
 
@@ -51,7 +52,7 @@ async def logout(
 async def me(actor: Actor = Depends(require_auth)) -> UserOut:
     if actor.kind == "key":
         return UserOut(username=f"key:{actor.name}", role="admin")
-    return UserOut(username=actor.name, role=actor.role)
+    return UserOut(id=0, username=actor.name, role=actor.role)
 
 
 @router.post("/users", status_code=201, response_model=UserOut)
@@ -60,8 +61,7 @@ async def create_user(
     actor: Actor = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
 ) -> UserOut:
-    if actor.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin role required")
+    _require_admin(actor)
     if payload.role not in ("admin", "viewer"):
         raise HTTPException(status_code=422, detail="role must be admin or viewer")
     if not payload.username.strip() or len(payload.password) < 8:
@@ -76,4 +76,58 @@ async def create_user(
     )
     session.add(user)
     await session.commit()
-    return UserOut(username=user.username, role=user.role)
+    return UserOut(id=user.id, username=user.username, role=user.role)
+
+
+def _require_admin(actor: Actor) -> None:
+    if actor.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+
+
+@router.get("/users", response_model=list[UserOut])
+async def list_users(
+    actor: Actor = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> list[UserOut]:
+    _require_admin(actor)
+    rows = await session.execute(select(User).order_by(User.username))
+    return [UserOut(id=u.id, username=u.username, role=u.role) for u in rows.scalars()]
+
+
+class UpdateUserIn(BaseModel):
+    role: str | None = None
+
+
+@router.patch("/users/{user_id:int}", response_model=UserOut)
+async def update_user(
+    user_id: int,
+    payload: UpdateUserIn,
+    actor: Actor = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> UserOut:
+    _require_admin(actor)
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+    if payload.role is not None:
+        if payload.role not in ("admin", "viewer"):
+            raise HTTPException(status_code=422, detail="role must be admin or viewer")
+        user.role = payload.role
+        await session.commit()
+    return UserOut(id=user.id, username=user.username, role=user.role)
+
+
+@router.delete("/users/{user_id:int}", response_model=None, status_code=204)
+async def delete_user(
+    user_id: int,
+    actor: Actor = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    _require_admin(actor)
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+    if user.username == actor.name:
+        raise HTTPException(status_code=422, detail="cannot delete yourself")
+    await session.delete(user)
+    await session.commit()

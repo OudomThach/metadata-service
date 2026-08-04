@@ -224,6 +224,8 @@ async def delete_record(
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
+    if _actor.role != "admin":
+        raise APIError(403, "forbidden", "Admin role required to delete records")
     actor = _actor.label()
     await crud.log_audit(session, record_id, "delete", actor, rec.envelope or {})
     await session.delete(rec)
