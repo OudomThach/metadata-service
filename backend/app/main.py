@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -10,8 +11,16 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import cors_list, settings
 from .errors import APIError, api_error_handler, http_exception_handler, validation_error_handler
 from .routers import auth, export, health, records, stats
+from .security import seed_admin
 
-app = FastAPI(title=settings.app_name, version=settings.version, docs_url="/api/docs", openapi_url="/api/openapi.json")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await seed_admin()
+    yield
+
+
+app = FastAPI(title=settings.app_name, version=settings.version, docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 origins = cors_list()
 if origins:

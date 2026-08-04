@@ -1,20 +1,19 @@
 import { useState } from "react";
-import { api, setToken } from "../api/client";
-import { useTheme } from "../hooks/useTheme";
+import { api, setSession } from "../api/client";
 
 export default function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { theme } = useTheme();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const res = await api.login(password);
-      setToken(res.token);
+      const res = await api.login(username.trim(), password);
+      setSession(res.token, res.user);
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -37,9 +36,21 @@ export default function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
         <h1 className="display text-center">
           Metadata <span className="text-accent dark:drop-shadow-[0_0_10px_rgba(0,229,255,0.7)]">Portal</span>
         </h1>
-        <p className="mt-2 text-center text-sm text-slate-600">Sign in to view extraction records</p>
+        <p className="mt-2 text-center text-sm text-slate-600">Sign in with your Romdoul account</p>
 
         <form onSubmit={submit} className="mt-6 space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Username</label>
+            <input
+              className="input"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoFocus
+              autoComplete="username"
+              placeholder="e.g. dara"
+            />
+          </div>
           <div>
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Password</label>
             <input
@@ -47,16 +58,14 @@ export default function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoFocus
-              placeholder="team password"
               autoComplete="current-password"
+              placeholder="••••••••"
             />
           </div>
           {error && <div className="text-sm text-red-500">{error}</div>}
-          <button className="btn-primary min-h-12 w-full text-base" type="submit" disabled={busy || !password}>
+          <button className="btn-primary min-h-12 w-full text-base" type="submit" disabled={busy || !username || !password}>
             {busy ? "Signing in…" : "Sign in"}
           </button>
-          {theme === "dark" && <p className="text-center text-[11px] text-slate-500">Theme matches your Romdoul OCR setting</p>}
         </form>
       </section>
     </div>

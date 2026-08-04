@@ -26,6 +26,8 @@ services:
       METADATA_DATABASE_URL: postgresql+asyncpg://metadata:${METADATA_DB_PASSWORD:-metadata}@metadata-postgres:5432/metadata
       METADATA_API_KEYS: ${METADATA_API_KEYS:-}
       METADATA_CORS_ORIGINS: ${METADATA_CORS_ORIGINS:-}
+      METADATA_ADMIN_USERNAME: ${METADATA_ADMIN_USERNAME:-admin}
+      METADATA_ADMIN_PASSWORD: ${METADATA_ADMIN_PASSWORD:-admin}
     ports:
       - "${METADATA_PORT:-8095}:8095"
     networks:

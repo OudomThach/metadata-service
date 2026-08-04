@@ -19,15 +19,20 @@ docker compose up -d --build
 - OpenAPI docs: http://localhost:8095/api/docs
 - Postgres: localhost:5433 (user/pass/db: `metadata`)
 
-## Login
+## Login (multi-user)
 
-All reads, edits, exports and stats require a login. The portal shows a sign-in
-screen; sign in with any of the keys in `METADATA_API_KEYS`. Once signed in the
-portal stores the token and sends `X-API-Key` on every call.
+The portal is gated behind real accounts: `users` + `sessions` tables, PBKDF2
+password hashing, 30-day session tokens. Sign in with username + password —
+every edit is attributed to that user (`edited_by: user:<name>`).
 
-- `POST /api/v1/auth/login` — `{"password": "<any configured key>"}` → `{"token": "..."}`
+- `POST /api/v1/auth/login` — `{"username", "password"}` → `{token, user: {username, role}}`
+- `POST /api/v1/auth/logout` — revokes the session
+- `GET /api/v1/auth/me` — current user
+- Roles: `admin` (full access) / `viewer` (read + export; PATCH/DELETE blocked by the UI only for now — role checks enforced server-side for future endpoints)
+- First admin is seeded on boot from `METADATA_ADMIN_USERNAME` / `METADATA_ADMIN_PASSWORD`
+- Machine access: `X-API-Key` with one of `METADATA_API_KEYS` still works (external consumers)
 - **`POST /api/v1/records` is deliberately open** — extraction pipelines record
-  from anywhere without leaking a key into a public bundle (idempotent by
+  from anywhere without leaking credentials into a public bundle (idempotent by
   client-supplied `id`, rate-limited at nginx).
 
 ## Ingesting records
@@ -62,21 +67,22 @@ Rules: `data` is the only domain-dependent part. The envelope is fixed for every
 | GET | `/api/v1/meta` | Distinct types/domains for filter dropdowns |
 | GET | `/health` | Liveness + DB check |
 
-### Auth (required for reads/manages, optional for ingest)
+### Auth
 
-Set `METADATA_API_KEYS=key1,key2` in `.env`. Every read/manage/export call must
-send `X-API-Key: <key>`. The portal logs in with the same keys. `POST /records`
-stays open so extraction pipelines work without shipping keys in public code.
+Portal users: username + password (`users`/`sessions`, PBKDF2 hashed, 30-day
+tokens) — session sent as `X-Session-Token`. Machine consumers: `X-API-Key`.
+`POST /records` stays open so pipelines record without shipping credentials.
 
 | Method | Path | Auth |
 |---|---|---|
 | POST | `/api/v1/records` | open |
 | POST | `/api/v1/auth/login` | open |
-| GET | `/api/v1/records` … | `X-API-Key` |
-| GET | `/api/v1/records/{id}` | `X-API-Key` |
-| PATCH/DELETE | `/api/v1/records/{id}` | `X-API-Key` |
-| GET | `/api/v1/export` | `X-API-Key` |
-| GET | `/api/v1/stats`, `/api/v1/meta` | `X-API-Key` |
+| GET | `/api/v1/auth/me`, POST `/api/v1/auth/logout` | session |
+| GET | `/api/v1/records` … | session or `X-API-Key` |
+| GET | `/api/v1/records/{id}` | session or `X-API-Key` |
+| PATCH/DELETE | `/api/v1/records/{id}` | session or `X-API-Key` |
+| GET | `/api/v1/export` | session or `X-API-Key` |
+| GET | `/api/v1/stats`, `/api/v1/meta` | session or `X-API-Key` |
 | GET | `/health`, `/api/docs` | open |
 
 ### Error format

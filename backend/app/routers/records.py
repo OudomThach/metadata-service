@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import crud, models, schemas
 from ..db import get_session
 from ..errors import APIError
-from ..security import require_api_key
+from ..security import Actor, require_auth
 
 # POST /records is deliberately OPEN so extraction pipelines can record from
 # anywhere without shipping a key in a public bundle (idempotent via client id,
@@ -119,7 +119,7 @@ async def create_record(
 
 @router.get("", response_model=schemas.PageOut)
 async def list_records(
-    _auth: None = Depends(require_api_key),
+    _actor: Actor = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
     type: str | None = Query(default=None),
     domain: str | None = Query(default=None),
@@ -160,7 +160,7 @@ async def list_records(
 
 
 @router.get("/{record_id}", response_model=schemas.RecordOut)
-async def get_record(record_id: str, session: AsyncSession = Depends(get_session), _auth: None = Depends(require_api_key)) -> models.Record:
+async def get_record(record_id: str, session: AsyncSession = Depends(get_session), _actor: Actor = Depends(require_auth)) -> models.Record:
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
@@ -173,13 +173,12 @@ async def patch_record(
     payload: schemas.RecordPatch,
     session: AsyncSession = Depends(get_session),
     x_edited_by: str | None = Header(default=None),
-    x_api_key: str | None = Header(default=None),
-    _auth: None = Depends(require_api_key),
+    _actor: Actor = Depends(require_auth),
 ) -> models.Record:
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
-    actor = x_edited_by or (f"user:{x_api_key}" if x_api_key else "system:api")
+    actor = x_edited_by or _actor.label()
     now = dt.datetime.now(dt.timezone.utc)
 
     env = dict(rec.envelope or {})
@@ -220,13 +219,12 @@ async def patch_record(
 async def delete_record(
     record_id: str,
     session: AsyncSession = Depends(get_session),
-    x_api_key: str | None = Header(default=None),
-    _auth: None = Depends(require_api_key),
+    _actor: Actor = Depends(require_auth),
 ) -> None:
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
-    actor = f"user:{x_api_key}" if x_api_key else "system:api"
+    actor = _actor.label()
     await crud.log_audit(session, record_id, "delete", actor, rec.envelope or {})
     await session.delete(rec)
     await session.commit()

@@ -24,6 +24,24 @@ async def client():
         yield c
 
 
+@pytest_asyncio.fixture
+async def auth_client(client, monkeypatch):
+    """Client with a valid admin session token attached to every request."""
+    from app import config
+    from app.security import seed_admin
+
+    monkeypatch.setattr(config.settings, "admin_username", "admin")
+    monkeypatch.setattr(config.settings, "admin_password", "test-pass")
+    await seed_admin()
+    r = await client.post("/api/v1/auth/login", json={"username": "admin", "password": "test-pass"})
+    token = r.json()["token"]
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers={"X-Session-Token": token}
+    ) as c:
+        yield c
+
+
 def sample_record(**overrides):
     payload = {
         "id": "rec-0001",

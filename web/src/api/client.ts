@@ -63,23 +63,40 @@ export interface QueryParams {
 
 const API = "/api/v1";
 const TOKEN_KEY = "metadata_token";
+const USER_KEY = "metadata_user";
+
+export interface PortalUser {
+  username: string;
+  role: string;
+}
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-export function setToken(token: string | null): void {
+export function getUser(): PortalUser | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as PortalUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSession(token: string | null, user?: PortalUser): void {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
+  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+  else localStorage.removeItem(USER_KEY);
 }
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined) };
-  if (token) headers["X-API-Key"] = token;
+  if (token) headers["X-Session-Token"] = token;
   const res = await fetch(path, { ...init, headers });
   if (res.status === 401 && token) {
-    setToken(null);
+    setSession(null);
     window.dispatchEvent(new Event("auth:required"));
   }
   if (!res.ok) {
@@ -103,12 +120,14 @@ function qs(params: Record<string, string | number | undefined>): string {
 }
 
 export const api = {
-  login: (password: string) =>
-    http<{ token: string }>(`${API}/auth/login`, {
+  login: (username: string, password: string) =>
+    http<{ token: string; user: PortalUser }>(`${API}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
     }),
+  logout: () => http<{ ok: boolean }>(`${API}/auth/logout`, { method: "POST" }),
+  me: () => http<PortalUser>(`${API}/auth/me`),
   listRecords: (p: QueryParams) =>
     http<Page<RecordOut>>(`${API}/records${qs({ ...p })}`),
   getRecord: (id: string) => http<RecordOut>(`${API}/records/${encodeURIComponent(id)}`),

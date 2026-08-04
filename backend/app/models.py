@@ -60,3 +60,22 @@ class AuditEvent(Base):
     actor: Mapped[str] = mapped_column(String(128), default="system:unknown")
     at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     envelope_snapshot: Mapped[dict] = mapped_column(JsonType)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(256))
+    role: Mapped[str] = mapped_column(String(16), default="viewer")  # admin | viewer
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256 hex of the opaque token
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))

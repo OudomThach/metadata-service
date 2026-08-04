@@ -5,7 +5,7 @@ import Records from "./pages/Records";
 import RecordDetail from "./pages/RecordDetail";
 import DocsPage from "./pages/DocsPage";
 import LoginScreen from "./components/LoginScreen";
-import { getToken, setToken } from "./api/client";
+import { api, getToken, getUser, setSession } from "./api/client";
 import { useTheme } from "./hooks/useTheme";
 
 const nav = [
@@ -54,6 +54,7 @@ function BrandMark({ className }: { className?: string }) {
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => getToken() !== null);
+  const [user, setUser] = useState(getUser());
   const { theme, toggle: toggleTheme } = useTheme();
 
   useEffect(() => {
@@ -61,6 +62,16 @@ export default function App() {
     window.addEventListener("auth:required", onAuthRequired);
     return () => window.removeEventListener("auth:required", onAuthRequired);
   }, []);
+
+  const signOut = async () => {
+    try {
+      await api.logout();
+    } catch {
+      /* session may already be invalid */
+    }
+    setSession(null);
+    setAuthed(false);
+  };
 
   if (!authed) {
     return (
@@ -72,7 +83,12 @@ export default function App() {
             {theme === "dark" ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
           </button>
         </div>
-        <LoginScreen onSuccess={() => setAuthed(true)} />
+        <LoginScreen
+          onSuccess={() => {
+            setUser(getUser());
+            setAuthed(true);
+          }}
+        />
       </div>
     );
   }
@@ -117,10 +133,14 @@ export default function App() {
             <button type="button" onClick={toggleTheme} className="btn-secondary px-3 py-2" title="Toggle theme" aria-label="Toggle theme">
               {theme === "dark" ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
             </button>
-            <button type="button" onClick={() => { setToken(null); setAuthed(false); }} className="btn-ghost ml-auto" title="Sign out">
+            <button type="button" onClick={signOut} className="btn-ghost ml-auto" title="Sign out">
               Sign out
             </button>
           </div>
+          <p className="px-1 text-[11px] text-slate-400">
+            Signed in as <span className="font-medium text-slate-600 dark:text-slate-300">{user?.username ?? "—"}</span>
+            {user?.role && <span className="badge ml-1.5 border-accent/30 bg-accent/10 text-accent">{user.role}</span>}
+          </p>
           <p className="px-1 text-[11px] text-slate-400">
             API base: <code className="font-mono">/api/v1</code> · docs at <code className="font-mono">/api/docs</code>
           </p>

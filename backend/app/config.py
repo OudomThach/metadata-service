@@ -7,7 +7,9 @@ class Settings(BaseSettings):
     app_name: str = "metadata-service"
     version: str = "1.0.0"
     database_url: str = "postgresql+asyncpg://metadata:metadata@localhost:5433/metadata"
-    api_keys: str = ""  # comma-separated; empty = open access (dev mode)
+    api_keys: str = ""  # comma-separated machine keys; empty = none
+    admin_username: str = "admin"
+    admin_password: str = "admin"  # CHANGE ME — seeded on first boot
     cors_origins: str = ""  # comma-separated, empty = same-origin only
     static_dir: str = "static"
 
