@@ -3,6 +3,8 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Records from "./pages/Records";
 import RecordDetail from "./pages/RecordDetail";
+import VerifyQueue from "./pages/VerifyQueue";
+import Datasets from "./pages/Datasets";
 import DocsPage from "./pages/DocsPage";
 import LoginScreen from "./components/LoginScreen";
 import { api, getToken, getUser, setSession } from "./api/client";
@@ -11,6 +13,8 @@ import { useTheme } from "./hooks/useTheme";
 const nav = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/records", label: "Records", end: false },
+  { to: "/verify", label: "Verify queue", end: false },
+  { to: "/datasets", label: "Datasets", end: false },
   { to: "/docs", label: "API Docs", end: false },
 ];
 
@@ -152,6 +156,8 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/records" element={<Records />} />
           <Route path="/records/:id" element={<RecordDetail />} />
+          <Route path="/verify" element={<VerifyQueue />} />
+          <Route path="/datasets" element={<Datasets />} />
           <Route path="/docs" element={<DocsPage />} />
         </Routes>
       </main>
