@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type AuditEventOut } from "../api/client";
 import StatusBadge from "../components/StatusBadge";
-import DataFormEditor from "../components/DataFormEditor";
 import { MarkdownView } from "../components/MarkdownView";
+import { DatasetOverview, DatasetColumns, DatasetReferences } from "../components/DatasetEditor";
 import { getUser } from "../api/client";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -142,12 +142,7 @@ export default function RecordDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"data" | "details" | "history">("data");
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [localDomain, setLocalDomain] = useState('');
-  const [localTags, setLocalTags] = useState('');
-  const [localDate, setLocalDate] = useState('');
+  const [tab, setTab] = useState<"overview" | "columns" | "references" | "details" | "history">("overview");
   const [textEditing, setTextEditing] = useState(false);
   const [textDraft, setTextDraft] = useState('');
   const [textView, setTextView] = useState<'text' | 'markdown'>('markdown');
@@ -162,15 +157,11 @@ export default function RecordDetail() {
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.patchRecord(id!, body),
     onSuccess: () => {
-      setSaved(true);
-      setSaveError(null);
       qc.invalidateQueries({ queryKey: ["record", id] });
       qc.invalidateQueries({ queryKey: ["records"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
       qc.invalidateQueries({ queryKey: ["history", id] });
-      setTimeout(() => setSaved(false), 2000);
     },
-    onError: (err: Error) => setSaveError(err.message),
   });
 
   const remove = useMutation({
@@ -181,15 +172,6 @@ export default function RecordDetail() {
       navigate("/records");
     },
   });
-
-  // Sync local state when record loads
-  useEffect(() => {
-    if (!rec) return;
-    setLocalDomain((rec.business?.domain as string) ?? '');
-    setLocalTags(((rec.business?.tags as string[]) ?? []).join(', '));
-    setLocalDate((rec.business?.date as string) ?? '');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rec?.id]);
 
   if (isLoading || !rec) return <div className="p-8 text-slate-500">Loading…</div>;
 
@@ -203,7 +185,9 @@ export default function RecordDetail() {
       </div>
 
       <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white dark:bg-white/5 p-0.5 shadow-sm w-fit mb-4">
-        <TabButton active={tab === "data"} onClick={() => setTab("data")}>Edit data</TabButton>
+        <TabButton active={tab === "overview"} onClick={() => setTab("overview")}>Overview</TabButton>
+        <TabButton active={tab === "columns"} onClick={() => setTab("columns")}>Columns</TabButton>
+        <TabButton active={tab === "references"} onClick={() => setTab("references")}>References</TabButton>
         <TabButton active={tab === "details"} onClick={() => setTab("details")}>Details</TabButton>
         <TabButton active={tab === "history"} onClick={() => setTab("history")}>History</TabButton>
       </div>
@@ -235,7 +219,7 @@ export default function RecordDetail() {
         </div>
       )}
 
-      {tab === "data" && (
+      {tab === "overview" && (
         <div className="space-y-4">
           {(rec.source?.thumbnail_base64 as string) && (
             <div className="flex items-start gap-4 mb-2">
@@ -332,95 +316,22 @@ export default function RecordDetail() {
             ) : textView === "markdown" ? (
               <MarkdownView source={String(rec.data?.markdown ?? rec.data?.full_text ?? "")} maxHeight="520px" />
             ) : (
-              <>
-                <div className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-white/5 p-3 text-sm leading-relaxed text-slate-700 dark:text-slate-300" style={{ fontFamily: "'Noto Sans Khmer', 'Khmer OS Siemreap', 'Segoe UI', sans-serif" }}>
-                  {String(rec.data?.full_text ?? rec.data?.markdown ?? "—")}
-                </div>
-              </>
+              <div className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-white/5 p-3 text-sm leading-relaxed text-slate-700 dark:text-slate-300" style={{ fontFamily: "'Noto Sans Khmer', 'Khmer OS Siemreap', 'Segoe UI', sans-serif" }}>
+                {String(rec.data?.full_text ?? rec.data?.markdown ?? "—")}
+              </div>
             )}
           </Section>
 
-          {/* Dataset metadata — readable KV when present */}
-          {(() => {
-            const ds = rec.data?.dataset as Record<string, unknown> | undefined;
-            if (!ds || !ds.name) return null;
-            const rows: [string, string][] = [
-              ["Name", String(ds.name ?? "—")],
-              ["Managed by", String(ds.managed_by ?? "—")],
-              ["Frequency", String(ds.frequency ?? "—")],
-              ["Coverage", `${String(ds.coverage_start ?? "—")} → ${String(ds.coverage_end ?? "—")}`],
-              ["Categories", String(ds.categories ?? "—")],
-              ["Collection", String(ds.collection ?? "—")],
-              ["URL / Source", String(ds.url ?? "—")],
-              ["Description", String(ds.description ?? "—")],
-              ["Data file", (ds.file as { name?: string } | undefined)?.name ?? "—"],
-            ].filter((row): row is [string, string] => Boolean(row[1]) && row[1] !== "—");
-            return (
-              <Section title="Dataset">
-                <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5">
-                  {rows.map(([k, v]) => (
-                    <div key={k} className="contents">
-                      <dt className="text-xs text-slate-500">{k}</dt>
-                      <dd className="text-sm text-slate-700 dark:text-slate-200 break-all">{v}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </Section>
-            );
-          })()}
-
-          {/* Business metadata — compact inputs */}
-          {canEdit && (
-            <Section title="Business metadata">
-              <div className="flex flex-wrap gap-3">
-                <div>
-                  <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Domain</label>
-                  <input className="input w-44" value={localDomain} onChange={(e) => setLocalDomain(e.target.value)} placeholder="e.g. logistics" />
-                </div>
-                <div>
-                  <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tags</label>
-                  <input className="input w-52" value={localTags} onChange={(e) => setLocalTags(e.target.value)} placeholder="import, warehouse" />
-                </div>
-                <div>
-                  <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Date</label>
-                  <input className="input w-36" type="date" value={localDate} onChange={(e) => setLocalDate(e.target.value)} />
-                </div>
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    className="btn-secondary px-3 py-1.5 text-xs"
-                    disabled={patch.isPending}
-                    onClick={() => patch.mutate({ business: { domain: localDomain.trim() || null, tags: localTags.split(',').map((t) => t.trim()).filter(Boolean), date: localDate || null } })}
-                  >
-                    Save metadata
-                  </button>
-                </div>
-              </div>
-            </Section>
-          )}
-
-          {/* Raw fields — collapsed for power users */}
-          <details className="panel p-3">
-            <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-accent">
-              Raw fields editor (power users)
-            </summary>
-            <div className="mt-3">
-              {canEdit ? (
-                <DataFormEditor key={rec.edit_count} data={rec.data} onChange={(d) => {
-                  const biz = { domain: localDomain.trim() || null, tags: localTags.split(',').map((t) => t.trim()).filter(Boolean), date: localDate || null };
-                  patch.mutate({ data: d, business: biz });
-                }} />
-              ) : (
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-xs">
-                  {JSON.stringify(rec.data, null, 2)}
-                </pre>
-              )}
-            </div>
-          </details>
-
-          {saved && <span className="block text-xs font-medium text-accent2">Saved — audit updated, status → edited</span>}
-          {saveError && <span className="block text-xs text-red-500">{saveError}</span>}
+          <DatasetOverview rec={rec} canEdit={canEdit} onPatch={(b) => patch.mutate(b)} />
         </div>
+      )}
+
+      {tab === "columns" && (
+        <DatasetColumns rec={rec} canEdit={canEdit} onPatch={(b) => patch.mutate(b)} />
+      )}
+
+      {tab === "references" && (
+        <DatasetReferences rec={rec} canEdit={canEdit} onPatch={(b) => patch.mutate(b)} />
       )}
 
       {tab === "history" && (
