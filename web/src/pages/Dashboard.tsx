@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import StatCard from "../components/StatCard";
 import { api } from "../api/client";
 
@@ -36,7 +37,14 @@ export default function Dashboard() {
 
       <div className="grid md:grid-cols-2 gap-6">
         <div className="panel p-5">
-          <div className="mb-3 text-sm font-semibold text-slate-950 dark:text-slate-100">By status</div>
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-sm font-semibold text-slate-950 dark:text-slate-100">By status</span>
+            {(stats.by_status.raw ?? 0) > 0 && (
+              <Link to="/verify" className="text-xs font-medium text-accent hover:underline">
+                Open verify queue ({(stats.by_status.raw ?? 0)} awaiting review) →
+              </Link>
+            )}
+          </div>
           <div className="space-y-2.5">
             {["raw", "edited", "verified"].map((s) => {
               const count = stats.by_status[s] ?? 0;
@@ -75,6 +83,19 @@ export default function Dashboard() {
                 </div>
               ))}
             {Object.keys(stats.by_type).length === 0 && <div className="text-xs text-slate-500">No records yet</div>}
+          </div>
+        </div>
+
+        <div className="panel p-5">
+          <div className="mb-3 text-sm font-semibold text-slate-950 dark:text-slate-100">By model</div>
+          <div className="flex flex-wrap gap-4">
+            {Object.entries(stats.by_model ?? {}).map(([m, count]) => (
+              <div key={m} className="flex items-center gap-2">
+                <span className={`h-3 w-3 rounded-full ${m === 'default' ? 'bg-accent' : m === 'vllm' ? 'bg-accent2' : 'bg-emerald-500'}`} />
+                <span className="text-sm text-slate-700 dark:text-slate-200">{m}</span>
+                <span className="text-sm font-semibold text-slate-950 dark:text-slate-100">{count}</span>
+              </div>
+            ))}
           </div>
         </div>
 

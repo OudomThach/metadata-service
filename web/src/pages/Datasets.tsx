@@ -15,6 +15,7 @@ interface DatasetView {
   url?: string;
   description?: string;
   file?: { name?: string; size?: number; type?: string } | null;
+  file_base64?: string | null;
 }
 
 /**
@@ -43,6 +44,30 @@ export default function Datasets() {
   const fmtSize = (b?: number) => {
     if (!b) return "";
     return b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} MB` : b >= 1024 ? `${(b / 1024).toFixed(0)} KB` : `${b} B`;
+  };
+
+  const downloadText = (name: string, content: string, type = "text/plain") => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadEmbedded = (ds: DatasetView) => {
+    if (!ds.file_base64 || !ds.file?.name) return;
+    const raw = atob(ds.file_base64.replace(/-/g, "+").replace(/_/g, "/"));
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const blob = new Blob([bytes], { type: ds.file.type || "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = ds.file.name;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -109,6 +134,34 @@ export default function Datasets() {
                         CSV
                       </button>
                     </div>
+                    <button
+                      type="button"
+                      className="btn-secondary px-2.5 py-1 text-xs"
+                      onClick={() => downloadText(`${(ds.name ?? record.id).replace(/[^\w.-]+/g, "_")}.csv`, String(record.data?.csv ?? ""), "text/csv")}
+                      disabled={!record.data?.csv}
+                      title="Download the saved CSV"
+                    >
+                      ⬇ CSV
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary px-2.5 py-1 text-xs"
+                      onClick={() => downloadText(`${(ds.name ?? record.id).replace(/[^\w.-]+/g, "_")}.md`, String(record.data?.markdown ?? record.data?.full_text ?? ""), "text/markdown")}
+                      disabled={!record.data?.markdown && !record.data?.full_text}
+                      title="Download the saved Markdown"
+                    >
+                      ⬇ .md
+                    </button>
+                    {ds.file_base64 && ds.file?.name && (
+                      <button
+                        type="button"
+                        className="btn-secondary px-2.5 py-1 text-xs"
+                        onClick={() => downloadEmbedded(ds)}
+                        title={`Download the uploaded file (${fmtSize(ds.file?.size)})`}
+                      >
+                        ⬇ {ds.file.name}
+                      </button>
+                    )}
                     <Link to={`/records/${record.id}`} className="btn-ghost px-2.5 py-1 text-xs">Full record</Link>
                     {ds.url && (
                       <a href={ds.url} target="_blank" rel="noreferrer" className="btn-ghost px-2.5 py-1 text-xs">Source link ↗</a>
