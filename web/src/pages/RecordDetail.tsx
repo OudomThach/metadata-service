@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type AuditEventOut } from "../api/client";
 import StatusBadge from "../components/StatusBadge";
 import DataFormEditor from "../components/DataFormEditor";
+import { MarkdownView } from "../components/MarkdownView";
 import { getUser } from "../api/client";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -149,6 +150,7 @@ export default function RecordDetail() {
   const [localDate, setLocalDate] = useState('');
   const [textEditing, setTextEditing] = useState(false);
   const [textDraft, setTextDraft] = useState('');
+  const [textView, setTextView] = useState<'text' | 'markdown'>('markdown');
   const user = getUser();
   const canEdit = user?.role === "admin" || user?.role === "editor";
 
@@ -275,6 +277,33 @@ export default function RecordDetail() {
 
           {/* OCR text — readable, editable like the review panel */}
           <Section title="OCR text">
+            <div className="mb-2 flex items-center gap-2">
+              <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setTextView("text")}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${textView === "text" ? "bg-slate-100 text-slate-950" : "text-slate-500"}`}
+                >
+                  Text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTextView("markdown")}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${textView === "markdown" ? "bg-slate-100 text-slate-950" : "text-slate-500"}`}
+                >
+                  Markdown
+                </button>
+              </div>
+              {canEdit && !textEditing && (
+                <button
+                  type="button"
+                  className="rounded-md px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  onClick={() => { setTextDraft(String(rec.data?.full_text ?? "")); setTextEditing(true); }}
+                >
+                  ✏️ Edit text
+                </button>
+              )}
+            </div>
             {textEditing && canEdit ? (
               <div className="space-y-2">
                 <textarea
@@ -288,7 +317,10 @@ export default function RecordDetail() {
                     type="button"
                     className="btn-primary px-3 py-1.5 text-xs"
                     disabled={patch.isPending}
-                    onClick={() => patch.mutate({ data: { ...rec.data, full_text: textDraft } })}
+                    onClick={() => {
+                      const draft = textDraft;
+                      patch.mutate({ data: { ...rec.data, full_text: draft, markdown: draft } });
+                    }}
                   >
                     Save text
                   </button>
@@ -297,20 +329,13 @@ export default function RecordDetail() {
                   </button>
                 </div>
               </div>
+            ) : textView === "markdown" ? (
+              <MarkdownView source={String(rec.data?.markdown ?? rec.data?.full_text ?? "")} maxHeight="520px" />
             ) : (
               <>
                 <div className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-white/5 p-3 text-sm leading-relaxed text-slate-700 dark:text-slate-300" style={{ fontFamily: "'Noto Sans Khmer', 'Khmer OS Siemreap', 'Segoe UI', sans-serif" }}>
                   {String(rec.data?.full_text ?? rec.data?.markdown ?? "—")}
                 </div>
-                {canEdit && (
-                  <button
-                    type="button"
-                    className="mt-2 rounded-md px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                    onClick={() => { setTextDraft(String(rec.data?.full_text ?? "")); setTextEditing(true); }}
-                  >
-                    ✏️ Edit text
-                  </button>
-                )}
               </>
             )}
           </Section>

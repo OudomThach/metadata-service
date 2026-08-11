@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getUser, type DatasetOut } from "../api/client";
+import { MarkdownView } from "../components/MarkdownView";
 
 /**
  * Datasets — first-class entities with draft -> published -> archived.
@@ -159,12 +160,52 @@ export default function Datasets() {
                       </button>
                     )}
                   </div>
+
+                  {d.record_id && (
+                    <DatasetPreview recordId={d.record_id} datasetName={d.name} />
+                  )}
                 </div>
               )}
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** Rendered Markdown preview of the linked record's auto-saved artifact. */
+function DatasetPreview({ recordId, datasetName }: { recordId: string; datasetName: string }) {
+  const [raw, setRaw] = useState(false);
+  const { data: rec } = useQuery({
+    queryKey: ["record", recordId],
+    queryFn: () => api.getRecord(recordId),
+  });
+  const markdown = String(rec?.data?.markdown ?? rec?.data?.full_text ?? "");
+  const csv = String(rec?.data?.csv ?? "");
+
+  if (!markdown && !csv) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-white/10 dark:bg-white/5">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preview — {datasetName}</span>
+        {markdown && (
+          <button
+            type="button"
+            className="rounded-md px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            onClick={() => setRaw((r) => !r)}
+          >
+            {raw ? "Rendered" : "Raw source"}
+          </button>
+        )}
+      </div>
+      {markdown && !raw ? (
+        <MarkdownView source={markdown} maxHeight="288px" showCopy={false} />
+      ) : (
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">
+          {raw ? markdown : csv}
+        </pre>
+      )}
     </div>
   );
 }
