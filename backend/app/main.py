@@ -15,7 +15,7 @@ from .config import cors_list, settings
 from .db import SessionLocal
 from .errors import APIError, api_error_handler, http_exception_handler, validation_error_handler
 from .models import Record
-from .routers import auth, export, health, records, stats, webhooks
+from .routers import admin, auth, categories, collections, datasets, export, health, organizations, records, stats, webhooks
 from .security import seed_admin
 
 _CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60
@@ -75,6 +75,11 @@ app.include_router(records.router)
 app.include_router(export.router)
 app.include_router(stats.router)
 app.include_router(webhooks.router)
+app.include_router(organizations.router)
+app.include_router(categories.router)
+app.include_router(collections.router)
+app.include_router(datasets.router)
+app.include_router(admin.router)
 
 
 @app.middleware("http")

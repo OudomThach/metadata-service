@@ -1,52 +1,40 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { api, type RecordOut } from "../api/client";
-import StatusBadge from "../components/StatusBadge";
-
-interface DatasetView {
-  name?: string;
-  managed_by?: string;
-  frequency?: string;
-  coverage_start?: string;
-  coverage_end?: string;
-  categories?: string;
-  collection?: string;
-  url?: string;
-  description?: string;
-  file?: { name?: string; size?: number; type?: string } | null;
-  file_base64?: string | null;
-}
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, getUser, type DatasetOut } from "../api/client";
 
 /**
- * Datasets — every record carrying a `data.dataset` (created by the post-OCR
- * "Create New Public Dataset" form), with the saved CSV/Markdown preview.
+ * Datasets — first-class entities with draft -> published -> archived.
+ * Published datasets are visible on the public Explore page.
  */
 export default function Datasets() {
+  const qc = useQueryClient();
+  const me = getUser();
+  const canEdit = me?.role === "admin" || me?.role === "editor";
+  const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
-  const [view, setView] = useState<"markdown" | "csv">("markdown");
 
   const { data: page, isLoading } = useQuery({
-    queryKey: ["records", { page_size: 200, sort: "created_at:desc" }],
-    queryFn: () => api.listRecords({ page_size: 200, sort: "created_at:desc" }),
+    queryKey: ["datasets", status, q],
+    queryFn: () => api.listDatasets({ page_size: 100, status: status || undefined, q: q || undefined }),
   });
+  const { data: orgs } = useQuery({ queryKey: ["organizations"], queryFn: api.listOrganizations });
+  const { data: cats } = useQuery({ queryKey: ["categories"], queryFn: api.listCategories });
+  const { data: cols } = useQuery({ queryKey: ["collections"], queryFn: api.listCollections });
 
-  const datasets: { record: RecordOut; ds: DatasetView }[] = (page?.items ?? [])
-    .filter((r) => {
-      const ds = (r.data?.dataset ?? null) as DatasetView | null;
-      return Boolean(ds && (ds.name || ds.managed_by));
-    })
-    .map((record) => ({ record, ds: (record.data?.dataset ?? {}) as DatasetView }))
-    .filter(({ ds }) => (ds.name ?? "").toLowerCase().includes(q.toLowerCase()));
-
-  const fmtDate = (v?: string) => (v ? v.slice(0, 10) : "—");
-  const fmtSize = (b?: number) => {
-    if (!b) return "";
-    return b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} MB` : b >= 1024 ? `${(b / 1024).toFixed(0)} KB` : `${b} B`;
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["datasets"] });
+    qc.invalidateQueries({ queryKey: ["records"] });
   };
+  const publish = useMutation({ mutationFn: (id: string) => api.publishDataset(id), onSuccess: invalidate });
+  const unpublish = useMutation({ mutationFn: (id: string) => api.unpublishDataset(id), onSuccess: invalidate });
+  const remove = useMutation({ mutationFn: (id: string) => api.deleteDataset(id), onSuccess: invalidate });
 
-  const downloadText = (name: string, content: string, type = "text/plain") => {
+  const orgName = (id: number | null) => orgs?.find((o) => o.id === id)?.name ?? "—";
+  const catName = (id: number | null) => cats?.find((c) => c.id === id)?.name ?? "—";
+  const colName = (id: number | null) => cols?.find((c) => c.id === id)?.name ?? "—";
+
+  const downloadText = (name: string, content: string, type: string) => {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -55,124 +43,122 @@ export default function Datasets() {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const downloadEmbedded = (ds: DatasetView) => {
-    if (!ds.file_base64 || !ds.file?.name) return;
-    const raw = atob(ds.file_base64.replace(/-/g, "+").replace(/_/g, "/"));
+  const downloadFile = (d: DatasetOut) => {
+    if (!d.file_base64 || !d.file_name) return;
+    const raw = atob(d.file_base64.replace(/-/g, "+").replace(/_/g, "/"));
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    const blob = new Blob([bytes], { type: ds.file.type || "application/octet-stream" });
+    downloadText(d.file_name, "", "application/octet-stream");
+    const blob = new Blob([bytes], { type: d.file_type || "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = ds.file.name;
+    a.download = d.file_name;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  const STATUS_BADGE: Record<string, string> = {
+    draft: "border-slate-300 bg-slate-100 text-slate-600",
+    published: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600",
+    archived: "border-amber-500/30 bg-amber-500/10 text-amber-600",
+  };
+
   return (
     <div className="p-6 max-w-7xl">
-      <div className="flex items-center justify-between gap-3 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
           <h1 className="display">Datasets</h1>
           <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
-            Records with public-dataset metadata ({datasets.length}) — CSV & Markdown auto-saved from the final (corrected) OCR text
+            First-class datasets — draft → published → archived ({page?.total ?? 0} total)
           </p>
         </div>
-        <input
-          className="input w-56"
-          placeholder="Search dataset name…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+        <div className="flex gap-2">
+          <input className="input w-52" placeholder="Search datasets…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <select className="input w-36" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="draft">draft</option><option value="published">published</option><option value="archived">archived</option>
+          </select>
+        </div>
       </div>
 
       {isLoading && <div className="panel p-6 text-sm text-slate-500">Loading…</div>}
-      {!isLoading && datasets.length === 0 && (
-        <div className="panel p-6 text-sm text-slate-500">
-          No datasets yet. OCR a document and complete the "Create New Public Dataset" form after extraction.
-        </div>
+      {!isLoading && (page?.items.length ?? 0) === 0 && (
+        <div className="panel p-6 text-sm text-slate-500">No datasets yet — OCR a document and complete the dataset form to create one.</div>
       )}
 
       <div className="space-y-3">
-        {datasets.map(({ record, ds }) => {
-          const expanded = openId === record.id;
+        {(page?.items ?? []).map((d) => {
+          const expanded = openId === d.id;
           return (
-            <div key={record.id} className="panel overflow-hidden">
-              <button
-                type="button"
-                className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left hover:bg-slate-50/60 dark:hover:bg-white/5"
-                onClick={() => setOpenId(expanded ? null : record.id)}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-slate-900 dark:text-slate-100">{ds.name || "—"}</span>
+            <div key={d.id} className="panel overflow-hidden">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpenId(expanded ? null : d.id)}>
+                  <span className="block truncate font-medium text-slate-900 dark:text-slate-100">{d.name}</span>
                   <span className="mt-0.5 block truncate text-xs text-slate-500">
-                    {ds.managed_by || "—"} · {ds.frequency || "—"} · {fmtDate(ds.coverage_start)} → {fmtDate(ds.coverage_end)}
+                    {orgName(d.organization_id)} · {catName(d.category_id)} · {colName(d.collection_id)}
+                    {d.coverage_start && ` · ${d.coverage_start} → ${d.coverage_end ?? "…"}`}
                   </span>
-                </span>
-                <StatusBadge status={record.status} />
-                <span className="text-xs text-slate-400">{ds.file?.name ?? "no file"}{ds.file?.size ? ` (${fmtSize(ds.file.size)})` : ""}</span>
-                <span className="text-xs text-slate-500">{expanded ? "▲" : "▼"}</span>
-              </button>
+                </button>
+                <span className={`badge ${STATUS_BADGE[d.status] ?? STATUS_BADGE.draft}`}>{d.status}</span>
+                {d.published_at && <span className="text-xs text-slate-400">{d.published_at.slice(0, 10)}</span>}
+                <span className="text-xs text-slate-400">{d.file_name ?? "no file"}</span>
+                {canEdit && (
+                  <div className="flex items-center gap-1.5">
+                    {d.status !== "published" ? (
+                      <button type="button" className="rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 disabled:opacity-50"
+                        disabled={publish.isPending} onClick={() => publish.mutate(d.id)}>
+                        Publish
+                      </button>
+                    ) : (
+                      <button type="button" className="rounded-md bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 hover:bg-amber-500/20 disabled:opacity-50"
+                        disabled={unpublish.isPending} onClick={() => unpublish.mutate(d.id)}>
+                        Unpublish
+                      </button>
+                    )}
+                    <button type="button" className="rounded-md px-2 py-1 text-xs text-red-500 hover:bg-red-50"
+                      onClick={() => { if (confirm(`Delete dataset "${d.name}"?`)) remove.mutate(d.id); }}>
+                      Delete
+                    </button>
+                    <button type="button" className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100" onClick={() => setOpenId(expanded ? null : d.id)}>
+                      {expanded ? "▲" : "▼"}
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {expanded && (
                 <div className="border-t border-slate-200 px-4 py-3 dark:border-white/10">
+                  {d.description && <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">{d.description}</p>}
                   <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => setView("markdown")}
-                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${view === "markdown" ? "bg-slate-100 text-slate-950" : "text-slate-500"}`}
-                      >
-                        Markdown
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setView("csv")}
-                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${view === "csv" ? "bg-slate-100 text-slate-950" : "text-slate-500"}`}
-                      >
-                        CSV
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-secondary px-2.5 py-1 text-xs"
-                      onClick={() => downloadText(`${(ds.name ?? record.id).replace(/[^\w.-]+/g, "_")}.csv`, String(record.data?.csv ?? ""), "text/csv")}
-                      disabled={!record.data?.csv}
-                      title="Download the saved CSV"
-                    >
-                      ⬇ CSV
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-secondary px-2.5 py-1 text-xs"
-                      onClick={() => downloadText(`${(ds.name ?? record.id).replace(/[^\w.-]+/g, "_")}.md`, String(record.data?.markdown ?? record.data?.full_text ?? ""), "text/markdown")}
-                      disabled={!record.data?.markdown && !record.data?.full_text}
-                      title="Download the saved Markdown"
-                    >
-                      ⬇ .md
-                    </button>
-                    {ds.file_base64 && ds.file?.name && (
-                      <button
-                        type="button"
-                        className="btn-secondary px-2.5 py-1 text-xs"
-                        onClick={() => downloadEmbedded(ds)}
-                        title={`Download the uploaded file (${fmtSize(ds.file?.size)})`}
-                      >
-                        ⬇ {ds.file.name}
+                    {d.record_id && (
+                      <a className="btn-ghost px-2.5 py-1 text-xs" href={`/records/${d.record_id}`} target="_blank" rel="noreferrer">Source record ↗</a>
+                    )}
+                    {d.url && <a href={d.url} target="_blank" rel="noreferrer" className="btn-ghost px-2.5 py-1 text-xs">Source link ↗</a>}
+                    {d.file_base64 && d.file_name && (
+                      <button type="button" className="btn-secondary px-2.5 py-1 text-xs" onClick={() => downloadFile(d)}>
+                        ⬇ {d.file_name}
                       </button>
                     )}
-                    <Link to={`/records/${record.id}`} className="btn-ghost px-2.5 py-1 text-xs">Full record</Link>
-                    {ds.url && (
-                      <a href={ds.url} target="_blank" rel="noreferrer" className="btn-ghost px-2.5 py-1 text-xs">Source link ↗</a>
+                    {d.record_id && (
+                      <button type="button" className="btn-secondary px-2.5 py-1 text-xs"
+                        onClick={() => { void api.getRecord(d.record_id!).then((r) => {
+                          const csv = String(r.data?.csv ?? "");
+                          if (csv) downloadText(`${d.name.replace(/[^\w.-]+/g, "_")}.csv`, csv, "text/csv");
+                        }); }}>
+                        ⬇ CSV
+                      </button>
                     )}
-                    {ds.description && <span className="text-xs text-slate-500 italic">“{ds.description.slice(0, 120)}…”</span>}
+                    {d.record_id && (
+                      <button type="button" className="btn-secondary px-2.5 py-1 text-xs"
+                        onClick={() => { void api.getRecord(d.record_id!).then((r) => {
+                          const md = String(r.data?.markdown ?? r.data?.full_text ?? "");
+                          if (md) downloadText(`${d.name.replace(/[^\w.-]+/g, "_")}.md`, md, "text/markdown");
+                        }); }}>
+                        ⬇ .md
+                      </button>
+                    )}
                   </div>
-                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">
-                    {view === "markdown"
-                      ? String(record.data?.markdown ?? record.data?.full_text ?? "—")
-                      : String(record.data?.csv ?? "—")}
-                  </pre>
                 </div>
               )}
             </div>

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from ..db import get_session
 from ..models import User
+from ..schemas import PasswordChangeIn
 from ..security import Actor, create_session, hash_password, require_auth, revoke_token, verify_password
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,12 +20,14 @@ class CreateUserIn(BaseModel):
     username: str
     password: str
     role: str = "viewer"
+    organization_id: int | None = None
 
 
 class UserOut(BaseModel):
     id: int
     username: str
     role: str
+    organization_id: int | None = None
 
 
 @router.post("/login")
@@ -55,6 +58,23 @@ async def me(actor: Actor = Depends(require_auth)) -> UserOut:
     return UserOut(id=0, username=actor.name, role=actor.role)
 
 
+@router.post("/me/password", response_model=dict)
+async def change_password(
+    payload: PasswordChangeIn,
+    actor: Actor = Depends(require_auth),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    if actor.kind != "user":
+        raise HTTPException(status_code=403, detail="API-key actors cannot change passwords")
+    row = await session.execute(select(User).where(User.username == actor.name))
+    user = row.scalar_one_or_none()
+    if not user or not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    user.password_hash = hash_password(payload.new_password)
+    await session.commit()
+    return {"ok": True}
+
+
 @router.post("/users", status_code=201, response_model=UserOut)
 async def create_user(
     payload: CreateUserIn,
@@ -62,8 +82,8 @@ async def create_user(
     session: AsyncSession = Depends(get_session),
 ) -> UserOut:
     _require_admin(actor)
-    if payload.role not in ("admin", "viewer"):
-        raise HTTPException(status_code=422, detail="role must be admin or viewer")
+    if payload.role not in ("admin", "editor", "viewer"):
+        raise HTTPException(status_code=422, detail="role must be admin, editor, or viewer")
     if not payload.username.strip() or len(payload.password) < 8:
         raise HTTPException(status_code=422, detail="username required, password at least 8 chars")
     exists = await session.execute(select(User).where(User.username == payload.username.strip()))
@@ -73,10 +93,11 @@ async def create_user(
         username=payload.username.strip(),
         password_hash=hash_password(payload.password),
         role=payload.role,
+        organization_id=payload.organization_id,
     )
     session.add(user)
     await session.commit()
-    return UserOut(id=user.id, username=user.username, role=user.role)
+    return UserOut(id=user.id, username=user.username, role=user.role, organization_id=user.organization_id)
 
 
 def _require_admin(actor: Actor) -> None:
@@ -91,11 +112,12 @@ async def list_users(
 ) -> list[UserOut]:
     _require_admin(actor)
     rows = await session.execute(select(User).order_by(User.username))
-    return [UserOut(id=u.id, username=u.username, role=u.role) for u in rows.scalars()]
+    return [UserOut(id=u.id, username=u.username, role=u.role, organization_id=u.organization_id) for u in rows.scalars()]
 
 
 class UpdateUserIn(BaseModel):
     role: str | None = None
+    organization_id: int | None = None
 
 
 @router.patch("/users/{user_id:int}", response_model=UserOut)
@@ -110,11 +132,13 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
     if payload.role is not None:
-        if payload.role not in ("admin", "viewer"):
-            raise HTTPException(status_code=422, detail="role must be admin or viewer")
+        if payload.role not in ("admin", "editor", "viewer"):
+            raise HTTPException(status_code=422, detail="role must be admin, editor, or viewer")
         user.role = payload.role
-        await session.commit()
-    return UserOut(id=user.id, username=user.username, role=user.role)
+    if payload.organization_id is not None:
+        user.organization_id = payload.organization_id
+    await session.commit()
+    return UserOut(id=user.id, username=user.username, role=user.role, organization_id=user.organization_id)
 
 
 @router.delete("/users/{user_id:int}", response_model=None, status_code=204)

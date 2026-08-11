@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, field_validator
 class SourceIn(BaseModel):
     document_id: str | None = None
     filename: str | None = None
+    file_type: str | None = None
+    thumbnail_base64: str | None = None
     page: int | None = Field(default=None, ge=1)
     extracted_at: dt.datetime | None = None
     model: str | None = None
@@ -109,5 +111,134 @@ class PageOut(BaseModel):
     total_pages: int
 
 
+class AuditEventOut(BaseModel):
+    id: int
+    action: str
+    actor: str
+    at: dt.datetime
+    snapshot: dict[str, Any]
+
+
 class ErrorOut(BaseModel):
     error: dict[str, Any]
+
+
+# --------------------------------------------------------------------------- #
+# Romdoul Data Sharing schemas
+# --------------------------------------------------------------------------- #
+class OrganizationIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    org_type: str = Field(default="other", max_length=32)
+    contact: dict[str, Any] | None = None
+
+
+class OrganizationOut(BaseModel):
+    id: int
+    name: str
+    org_type: str
+    contact: dict[str, Any] | None = None
+    created_at: dt.datetime
+
+
+class CategoryIn(BaseModel):
+    parent_id: int | None = None
+    name: str = Field(min_length=1, max_length=128)
+    description: str | None = None
+    sort: int = 0
+
+
+class CategoryOut(BaseModel):
+    id: int
+    parent_id: int | None = None
+    name: str
+    description: str | None = None
+    sort: int
+    created_at: dt.datetime
+
+
+class CollectionIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str | None = None
+    organization_id: int | None = None
+
+
+class CollectionOut(BaseModel):
+    id: int
+    name: str
+    description: str | None = None
+    organization_id: int | None = None
+    created_at: dt.datetime
+
+
+class DatasetIn(BaseModel):
+    id: str | None = Field(default=None, max_length=36)
+    record_id: str | None = None
+    name: str = Field(min_length=1, max_length=256)
+    description: str | None = None
+    organization_id: int | None = None
+    category_id: int | None = None
+    collection_id: int | None = None
+    coverage_start: dt.date | None = None
+    coverage_end: dt.date | None = None
+    frequency: str | None = None
+    url: str | None = None
+    file_name: str | None = None
+    file_size: int | None = None
+    file_type: str | None = None
+    file_base64: str | None = None
+
+
+class DatasetOut(BaseModel):
+    id: str
+    record_id: str | None = None
+    name: str
+    description: str | None = None
+    organization_id: int | None = None
+    category_id: int | None = None
+    collection_id: int | None = None
+    coverage_start: dt.date | None = None
+    coverage_end: dt.date | None = None
+    frequency: str | None = None
+    url: str | None = None
+    status: str
+    published_at: dt.datetime | None = None
+    file_name: str | None = None
+    file_size: int | None = None
+    file_type: str | None = None
+    file_base64: str | None = None
+    created_at: dt.datetime
+    updated_at: dt.datetime | None = None
+
+
+class DatasetPageOut(BaseModel):
+    items: list[DatasetOut]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+
+
+class AuditEventGlobalOut(BaseModel):
+    id: int
+    actor: str
+    action: str
+    entity_type: str
+    entity_id: str | None = None
+    detail: dict[str, Any] | None = None
+    at: dt.datetime
+
+
+class SettingIn(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+    value: dict[str, Any] | None = None
+
+
+class SettingOut(BaseModel):
+    key: str
+    value: dict[str, Any] | None = None
+    updated_at: dt.datetime
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)

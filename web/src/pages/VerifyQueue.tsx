@@ -35,6 +35,20 @@ export default function VerifyQueue() {
     }
   };
 
+  const promote = async (id: string) => {
+    if (!canAct) return;
+    setBusy(id);
+    try {
+      const d = await api.promoteRecordToDataset(id);
+      qc.invalidateQueries({ queryKey: ["datasets"] });
+      window.alert(`Promoted to dataset "${d.name}" (${d.status}) — manage it in Datasets.`);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Promote failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const bulkSetStatus = async (status: "verified" | "edited") => {
     if (!canAct || selected.size === 0) return;
     if (!window.confirm(`Mark ${selected.size} record(s) as ${status}?`)) return;
@@ -171,6 +185,17 @@ export default function VerifyQueue() {
                         >
                           Needs edits
                         </button>
+                        {hasDataset && (
+                          <button
+                            type="button"
+                            className="rounded-md bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+                            disabled={busy === r.id}
+                            onClick={() => void promote(r.id)}
+                            title="Create a first-class dataset from this record's dataset payload"
+                          >
+                            → Dataset
+                          </button>
+                        )}
                         <Link to={`/records/${r.id}`} className="rounded-md px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900">
                           Open
                         </Link>

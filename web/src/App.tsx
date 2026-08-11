@@ -5,6 +5,14 @@ import Records from "./pages/Records";
 import RecordDetail from "./pages/RecordDetail";
 import VerifyQueue from "./pages/VerifyQueue";
 import Datasets from "./pages/Datasets";
+import Categories from "./pages/Categories";
+import Collections from "./pages/Collections";
+import Organizations from "./pages/Organizations";
+import Users from "./pages/Users";
+import AuditLogs from "./pages/AuditLogs";
+import Profile from "./pages/Profile";
+import Settings from "./pages/Settings";
+import Explore from "./pages/Explore";
 import DocsPage from "./pages/DocsPage";
 import LoginScreen from "./components/LoginScreen";
 import { api, getToken, getUser, setSession } from "./api/client";
@@ -12,9 +20,17 @@ import { useTheme } from "./hooks/useTheme";
 
 const nav = [
   { to: "/", label: "Dashboard", end: true },
-  { to: "/records", label: "Records", end: false },
+  { to: "/explore", label: "Explore", end: false },
+  { to: "/records", label: "Data management", end: false },
   { to: "/verify", label: "Verify queue", end: false },
+  { to: "/categories", label: "Categories", end: false },
+  { to: "/collections", label: "Collections", end: false },
   { to: "/datasets", label: "Datasets", end: false },
+  { to: "/organizations", label: "Organizations", end: false },
+  { to: "/users", label: "Users", end: false },
+  { to: "/audit", label: "Audit logs", end: false },
+  { to: "/settings", label: "Settings", end: false },
+  { to: "/profile", label: "My profile", end: false },
   { to: "/docs", label: "API Docs", end: false },
 ];
 
@@ -109,9 +125,9 @@ export default function App() {
           </div>
           <div className="min-w-0">
             <h1 className="truncate text-sm font-semibold leading-tight tracking-tight text-slate-950">
-              Metadata <span className="text-accent dark:drop-shadow-[0_0_8px_rgba(0,229,255,0.7)]">Portal</span>
+              Romdoul <span className="text-accent dark:drop-shadow-[0_0_8px_rgba(0,229,255,0.7)]">Data Sharing</span>
             </h1>
-            <p className="truncate text-[11px] uppercase tracking-wider text-slate-500">Romdoul extraction records</p>
+            <p className="truncate text-[11px] uppercase tracking-wider text-slate-500">OCR → datasets → publish</p>
           </div>
         </div>
         <div className="temple-ridge mx-3 mb-2 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
@@ -154,10 +170,18 @@ export default function App() {
       <main className="relative z-10 min-w-0 flex-1">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/explore" element={<Explore />} />
           <Route path="/records" element={<Records />} />
           <Route path="/records/:id" element={<RecordDetail />} />
           <Route path="/verify" element={<VerifyQueue />} />
           <Route path="/datasets" element={<Datasets />} />
+          <Route path="/categories" element={<Categories />} />
+          <Route path="/collections" element={<Collections />} />
+          <Route path="/organizations" element={<Organizations />} />
+          <Route path="/users" element={<Users />} />
+          <Route path="/audit" element={<AuditLogs />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="/docs" element={<DocsPage />} />
         </Routes>
       </main>

@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import uuid
 
@@ -9,6 +10,7 @@ from .. import crud, models, schemas
 from ..db import get_session
 from ..errors import APIError
 from ..security import Actor, require_auth
+from .webhooks import fire_webhooks
 
 # POST /records is deliberately OPEN so extraction pipelines can record from
 # anywhere without shipping a key in a public bundle (idempotent via client id,
@@ -31,6 +33,7 @@ def _build_envelope(payload: schemas.RecordCreate, actor: str, now: dt.datetime)
         "created_at": created_at.isoformat(),
         "created_by": created_by,
         "status": status,
+        "edit_count": 0,
         **audit_in,
     }
     envelope["record"] = {"validation": {"status": "accepted", "warnings": []}, "ingested_at": now.isoformat()}
@@ -98,8 +101,15 @@ async def create_record(
     payload: schemas.RecordCreate,
     session: AsyncSession = Depends(get_session),
     x_api_key: str | None = Header(default=None),
+    x_session_token: str | None = Header(default=None),
 ) -> models.Record:
-    actor = f"user:{x_api_key}" if x_api_key else "system:api"
+    actor = "system:api"
+    if x_api_key:
+        actor = f"key:{x_api_key}"
+    elif x_session_token:
+        from ..security import user_by_token
+        user = await user_by_token(session, x_session_token)
+        actor = f"user:{user.username}" if user else "system:api"
     now = dt.datetime.now(dt.timezone.utc)
     record_id = payload.id or str(uuid.uuid4())
     exists = (await session.execute(select(func.count()).select_from(models.Record).where(models.Record.id == record_id))).scalar()
@@ -113,6 +123,7 @@ async def create_record(
     await session.flush()  # assign rec.id before the FK-referencing audit row
     await crud.log_audit(session, record_id, "create", actor, envelope)
     await session.commit()
+    asyncio.create_task(fire_webhooks(record_id, "create", envelope))
     await session.refresh(rec)
     return crud.to_out(rec)
 
@@ -167,6 +178,63 @@ async def get_record(record_id: str, session: AsyncSession = Depends(get_session
     return crud.to_out(rec)
 
 
+@router.delete("", response_model=dict)
+async def bulk_delete_records(
+    session: AsyncSession = Depends(get_session),
+    _actor: Actor = Depends(require_auth),
+    type: str | None = Query(default=None),
+    domain: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    tag: str | None = Query(default=None),
+    created_before: dt.datetime | None = Query(default=None),
+) -> dict:
+    if _actor.role != "admin":
+        raise APIError(403, "forbidden", "Admin role required")
+    stmt = crud.apply_filters(
+        select(models.Record),
+        dialect=session.get_bind().dialect.name,
+        type=type, domain=domain, status=status, tag=tag,
+        business_from=None, business_to=None,
+        created_from=None, created_to=created_before,
+        q=None,
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    count = len(rows)
+    for r in rows:
+        await crud.log_audit(session, r.id, "delete", _actor.label(), r.envelope or {})
+        await session.delete(r)
+    await session.commit()
+    return {"deleted": count}
+
+
+@router.get("/{record_id}/history", response_model=list[schemas.AuditEventOut])
+async def record_history(
+    record_id: str,
+    session: AsyncSession = Depends(get_session),
+    _actor: Actor = Depends(require_auth),
+) -> list[schemas.AuditEventOut]:
+    rec = await session.get(models.Record, record_id)
+    if not rec:
+        raise APIError(404, "not_found", f"record {record_id} not found")
+    rows = (
+        await session.execute(
+            select(models.AuditEvent)
+            .where(models.AuditEvent.record_id == record_id)
+            .order_by(models.AuditEvent.at.asc())
+        )
+    ).scalars().all()
+    return [
+        schemas.AuditEventOut(
+            id=e.id,
+            action=e.action,
+            actor=e.actor,
+            at=e.at,
+            snapshot=e.envelope_snapshot,
+        )
+        for e in rows
+    ]
+
+
 @router.patch("/{record_id}", response_model=schemas.RecordOut)
 async def patch_record(
     record_id: str,
@@ -175,6 +243,8 @@ async def patch_record(
     x_edited_by: str | None = Header(default=None),
     _actor: Actor = Depends(require_auth),
 ) -> models.Record:
+    if _actor.role not in ("admin", "editor"):
+        raise APIError(403, "forbidden", "Admin or editor role required to edit records")
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
@@ -211,6 +281,7 @@ async def patch_record(
     _apply_envelope(rec, env)
     await crud.log_audit(session, record_id, "update", actor, env)
     await session.commit()
+    asyncio.create_task(fire_webhooks(record_id, "update", env))
     await session.refresh(rec)
     return crud.to_out(rec)
 
@@ -230,3 +301,4 @@ async def delete_record(
     await crud.log_audit(session, record_id, "delete", actor, rec.envelope or {})
     await session.delete(rec)
     await session.commit()
+    asyncio.create_task(fire_webhooks(record_id, "delete", rec.envelope or {}))

@@ -30,11 +30,11 @@ export interface RecordOut {
   source_system: string | null;
 }
 
-export interface Stats {
-  total: number;
+export interface Stats {  total: number;
   by_status: Record<string, number>;
   by_type: Record<string, number>;
   by_domain: Record<string, number>;
+  by_model: Record<string, number>;
   edited: number;
   verified: number;
   coverage_avg: number | null;
@@ -44,6 +44,142 @@ export interface Stats {
 export interface Meta {
   types: string[];
   domains: string[];
+}
+
+// ── Romdoul Data Sharing types ────────────────────────────────────────────
+export interface OrganizationOut {
+  id: number;
+  name: string;
+  org_type: string;
+  contact: Record<string, unknown> | null;
+  created_at: string;
+}
+export interface OrganizationIn {
+  name: string;
+  org_type: string;
+  contact?: Record<string, unknown> | null;
+}
+
+export interface CategoryOut {
+  id: number;
+  parent_id: number | null;
+  name: string;
+  description: string | null;
+  sort: number;
+  created_at: string;
+}
+export interface CategoryIn {
+  parent_id?: number | null;
+  name: string;
+  description?: string | null;
+  sort?: number;
+}
+
+export interface CollectionOut {
+  id: number;
+  name: string;
+  description: string | null;
+  organization_id: number | null;
+  created_at: string;
+}
+export interface CollectionIn {
+  name: string;
+  description?: string | null;
+  organization_id?: number | null;
+}
+
+export interface DatasetOut {
+  id: string;
+  record_id: string | null;
+  name: string;
+  description: string | null;
+  organization_id: number | null;
+  category_id: number | null;
+  collection_id: number | null;
+  coverage_start: string | null;
+  coverage_end: string | null;
+  frequency: string | null;
+  url: string | null;
+  status: string;
+  published_at: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  file_type: string | null;
+  file_base64: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+export interface DatasetIn {
+  id?: string;
+  record_id?: string | null;
+  name: string;
+  description?: string | null;
+  organization_id?: number | null;
+  category_id?: number | null;
+  collection_id?: number | null;
+  coverage_start?: string | null;
+  coverage_end?: string | null;
+  frequency?: string | null;
+  url?: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
+  file_type?: string | null;
+  file_base64?: string | null;
+}
+export interface DatasetPage {
+  items: DatasetOut[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+export interface DatasetQuery {
+  page?: number;
+  page_size?: number;
+  status?: string;
+  category_id?: number;
+  collection_id?: number;
+  organization_id?: number;
+  q?: string;
+  public?: boolean;
+}
+
+export interface AuditEventOut {
+  id: number;
+  actor: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  detail: Record<string, unknown> | null;
+  at: string;
+}
+export interface AuditQuery {
+  entity_type?: string;
+  action?: string;
+  actor_name?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SettingOut {
+  key: string;
+  value: Record<string, unknown> | null;
+  updated_at: string;
+}
+
+export interface UserOut {
+  id: number;
+  username: string;
+  role: string;
+  organization_id: number | null;
+}
+
+export interface AuditEventOut {
+  id: number;
+  action: string;
+  actor: string;
+  at: string;
+  snapshot: Record<string, unknown>;
 }
 
 export interface QueryParams {
@@ -116,7 +252,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
-function qs(params: Record<string, string | number | undefined>): string {
+function qs(params: Record<string, string | number | boolean | undefined>): string {
   const parts = Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== "")
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
@@ -135,6 +271,7 @@ export const api = {
   listRecords: (p: QueryParams) =>
     http<Page<RecordOut>>(`${API}/records${qs({ ...p })}`),
   getRecord: (id: string) => http<RecordOut>(`${API}/records/${encodeURIComponent(id)}`),
+  recordHistory: (id: string) => http<AuditEventOut[]>(`${API}/records/${encodeURIComponent(id)}/history`),
   patchRecord: (id: string, body: Record<string, unknown>) =>
     http<RecordOut>(`${API}/records/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -146,4 +283,97 @@ export const api = {
   meta: () => http<Meta>(`${API}/meta`),
   exportUrl: (format: "csv" | "json", p: QueryParams) =>
     `${API}/export${qs({ format, ...p })}`,
+  // ── Romdoul Data Sharing entities ────────────────────────────────────
+  changePassword: (body: { current_password: string; new_password: string }) =>
+    http<{ ok: boolean }>(`${API}/auth/me/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  listUsers: () => http<UserOut[]>(`${API}/auth/users`),
+  createUser: (body: { username: string; password: string; role: string; organization_id?: number | null }) =>
+    http<UserOut>(`${API}/auth/users`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateUser: (id: number, body: { role?: string; organization_id?: number | null }) =>
+    http<UserOut>(`${API}/auth/users/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteUser: (id: number) => http<void>(`${API}/auth/users/${id}`, { method: "DELETE" }),
+  listOrganizations: () => http<OrganizationOut[]>(`${API}/organizations`),
+  createOrganization: (body: OrganizationIn) =>
+    http<OrganizationOut>(`${API}/organizations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateOrganization: (id: number, body: OrganizationIn) =>
+    http<OrganizationOut>(`${API}/organizations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteOrganization: (id: number) => http<void>(`${API}/organizations/${id}`, { method: "DELETE" }),
+  listCategories: () => http<CategoryOut[]>(`${API}/categories`),
+  createCategory: (body: CategoryIn) =>
+    http<CategoryOut>(`${API}/categories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateCategory: (id: number, body: CategoryIn) =>
+    http<CategoryOut>(`${API}/categories/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteCategory: (id: number) => http<void>(`${API}/categories/${id}`, { method: "DELETE" }),
+  listCollections: () => http<CollectionOut[]>(`${API}/collections`),
+  createCollection: (body: CollectionIn) =>
+    http<CollectionOut>(`${API}/collections`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateCollection: (id: number, body: CollectionIn) =>
+    http<CollectionOut>(`${API}/collections/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteCollection: (id: number) => http<void>(`${API}/collections/${id}`, { method: "DELETE" }),
+  listDatasets: (p: DatasetQuery = {}) =>
+    http<DatasetPage>(`${API}/datasets${qs({ ...p })}`),
+  getDataset: (id: string) => http<DatasetOut>(`${API}/datasets/${encodeURIComponent(id)}`),
+  createDataset: (body: DatasetIn) =>
+    http<DatasetOut>(`${API}/datasets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateDataset: (id: string, body: Partial<DatasetIn>) =>
+    http<DatasetOut>(`${API}/datasets/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  publishDataset: (id: string) => http<DatasetOut>(`${API}/datasets/${encodeURIComponent(id)}/publish`, { method: "POST" }),
+  unpublishDataset: (id: string) => http<DatasetOut>(`${API}/datasets/${encodeURIComponent(id)}/unpublish`, { method: "POST" }),
+  promoteRecordToDataset: (recordId: string) =>
+    http<DatasetOut>(`${API}/datasets/from-record/${encodeURIComponent(recordId)}`, { method: "POST" }),
+  deleteDataset: (id: string) => http<void>(`${API}/datasets/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  listAudit: (p: AuditQuery = {}) =>
+    http<AuditEventOut[]>(`${API}/audit${qs({ ...p })}`),
+  listSettings: () => http<SettingOut[]>(`${API}/settings`),
+  upsertSetting: (key: string, value: Record<string, unknown>) =>
+    http<SettingOut>(`${API}/settings/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    }),
+  deleteSetting: (key: string) => http<void>(`${API}/settings/${encodeURIComponent(key)}`, { method: "DELETE" }),
 };

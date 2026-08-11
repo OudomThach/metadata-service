@@ -108,6 +108,23 @@ async def require_auth(
     raise HTTPException(status_code=401, detail="Invalid or missing credentials")
 
 
+async def require_auth_optional(
+    x_api_key: str | None = Header(default=None),
+    x_session_token: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> Actor | None:
+    """Like require_auth, but returns None instead of raising — for public
+    endpoints that simply expose less when unauthenticated."""
+    keys = authorized_keys()
+    if x_api_key and x_api_key in keys:
+        return Actor("key", x_api_key, "admin")
+    if x_session_token:
+        user = await user_by_token(session, x_session_token)
+        if user:
+            return Actor("user", user.username, user.role)
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Bootstrap: ensure the admin user exists on startup
 # --------------------------------------------------------------------------- #
