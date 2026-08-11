@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     admin_password: str = "admin"  # CHANGE ME — seeded on first boot
     cors_origins: str = ""  # comma-separated, empty = same-origin only
     static_dir: str = "static"
+    # Unverified `raw` drafts older than this are purged nightly (0 disables).
+    draft_ttl_days: int = 30
 
 
 settings = Settings()

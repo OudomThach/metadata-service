@@ -1,7 +1,7 @@
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import Select, Text, cast, func, select
+from sqlalchemy import Select, Text, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import models, schemas
@@ -41,7 +41,14 @@ def apply_filters(
     if created_to:
         stmt = stmt.where(models.Record.created_at <= created_to)
     if q:
-        stmt = stmt.where(cast(models.Record.data, Text).ilike(f"%{q}%"))
+        # Full-text-ish search across the extraction data (incl. full_text)
+        # AND the business metadata (owner, category, title, tags, ...).
+        stmt = stmt.where(
+            or_(
+                cast(models.Record.data, Text).ilike(f"%{q}%"),
+                cast(models.Record.business, Text).ilike(f"%{q}%"),
+            )
+        )
     return stmt
 
 
@@ -117,6 +124,9 @@ async def stats(session: AsyncSession) -> dict[str, Any]:
     by_domain = dict(
         (await session.execute(select(models.Record.domain, func.count()).where(models.Record.domain.is_not(None)).group_by(models.Record.domain))).all()
     )
+    by_model = dict(
+        (await session.execute(select(models.Record.source_model, func.count()).where(models.Record.source_model.is_not(None)).group_by(models.Record.source_model))).all()
+    )
     edited = (await session.execute(select(func.count()).select_from(models.Record).where(models.Record.edit_count > 0))).scalar() or 0
     verified = by_status.get("verified", 0)
     coverage_avg = (await session.execute(select(func.avg(models.Record.coverage)).where(models.Record.coverage.is_not(None)))).scalar()
@@ -132,6 +142,9 @@ async def stats(session: AsyncSession) -> dict[str, Any]:
         "total": total,
         "by_status": {k: int(v) for k, v in by_status.items()},
         "by_type": {k: int(v) for k, v in by_type.items()},
+        "by_domain": {k: int(v) for k, v in by_domain.items()},
+        "by_model": {k or "unknown": int(v) for k, v in by_model.items()},
+        "by_domain": {k: int(v) for k, v in by_domain.items()},
         "by_domain": {k: int(v) for k, v in by_domain.items()},
         "edited": int(edited),
         "verified": int(verified),
