@@ -147,6 +147,8 @@ export default function RecordDetail() {
   const [localDomain, setLocalDomain] = useState('');
   const [localTags, setLocalTags] = useState('');
   const [localDate, setLocalDate] = useState('');
+  const [textEditing, setTextEditing] = useState(false);
+  const [textDraft, setTextDraft] = useState('');
   const user = getUser();
   const canEdit = user?.role === "admin" || user?.role === "editor";
 
@@ -236,8 +238,113 @@ export default function RecordDetail() {
           {(rec.source?.thumbnail_base64 as string) && (
             <div className="flex items-start gap-4 mb-2">
               <img src={rec.source?.thumbnail_base64 as string} alt="Source" className="h-28 w-28 rounded-lg border border-slate-200 dark:border-white/10 object-cover shrink-0" />
+              <div className="min-w-0 pt-1">
+                <div className="text-sm font-medium text-slate-900 dark:text-slate-100 break-all">{String(rec.data?.document_name ?? rec.source?.filename ?? "—")}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <StatusBadge status={rec.status} />
+                  <span className="text-xs text-slate-500">{rec.type} · edited ×{rec.edit_count}</span>
+                </div>
+              </div>
             </div>
           )}
+
+          {/* Verification actions */}
+          {canEdit && rec.status !== "verified" && (
+            <Section title="Verification">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-md bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 disabled:opacity-50"
+                  disabled={patch.isPending}
+                  onClick={() => patch.mutate({ status: "verified" })}
+                >
+                  ✓ Approve (mark verified)
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-500/20 disabled:opacity-50"
+                  disabled={patch.isPending}
+                  onClick={() => patch.mutate({ status: "edited" })}
+                >
+                  Needs edits
+                </button>
+                <span className="text-xs text-slate-400">Recheck the OCR text and metadata, then approve.</span>
+              </div>
+            </Section>
+          )}
+
+          {/* OCR text — readable, editable like the review panel */}
+          <Section title="OCR text">
+            {textEditing && canEdit ? (
+              <div className="space-y-2">
+                <textarea
+                  className="input min-h-40 w-full resize-y text-sm leading-relaxed"
+                  value={textDraft}
+                  onChange={(e) => setTextDraft(e.target.value)}
+                  spellCheck={false}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn-primary px-3 py-1.5 text-xs"
+                    disabled={patch.isPending}
+                    onClick={() => patch.mutate({ data: { ...rec.data, full_text: textDraft } })}
+                  >
+                    Save text
+                  </button>
+                  <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={() => { setTextEditing(false); setTextDraft(String(rec.data?.full_text ?? "")); }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-white/5 p-3 text-sm leading-relaxed text-slate-700 dark:text-slate-300" style={{ fontFamily: "'Noto Sans Khmer', 'Khmer OS Siemreap', 'Segoe UI', sans-serif" }}>
+                  {String(rec.data?.full_text ?? rec.data?.markdown ?? "—")}
+                </div>
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="mt-2 rounded-md px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                    onClick={() => { setTextDraft(String(rec.data?.full_text ?? "")); setTextEditing(true); }}
+                  >
+                    ✏️ Edit text
+                  </button>
+                )}
+              </>
+            )}
+          </Section>
+
+          {/* Dataset metadata — readable KV when present */}
+          {(() => {
+            const ds = rec.data?.dataset as Record<string, unknown> | undefined;
+            if (!ds || !ds.name) return null;
+            const rows: [string, string][] = [
+              ["Name", String(ds.name ?? "—")],
+              ["Managed by", String(ds.managed_by ?? "—")],
+              ["Frequency", String(ds.frequency ?? "—")],
+              ["Coverage", `${String(ds.coverage_start ?? "—")} → ${String(ds.coverage_end ?? "—")}`],
+              ["Categories", String(ds.categories ?? "—")],
+              ["Collection", String(ds.collection ?? "—")],
+              ["URL / Source", String(ds.url ?? "—")],
+              ["Description", String(ds.description ?? "—")],
+              ["Data file", (ds.file as { name?: string } | undefined)?.name ?? "—"],
+            ].filter((row): row is [string, string] => Boolean(row[1]) && row[1] !== "—");
+            return (
+              <Section title="Dataset">
+                <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1.5">
+                  {rows.map(([k, v]) => (
+                    <div key={k} className="contents">
+                      <dt className="text-xs text-slate-500">{k}</dt>
+                      <dd className="text-sm text-slate-700 dark:text-slate-200 break-all">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </Section>
+            );
+          })()}
+
+          {/* Business metadata — compact inputs */}
           {canEdit && (
             <Section title="Business metadata">
               <div className="flex flex-wrap gap-3">
@@ -253,21 +360,39 @@ export default function RecordDetail() {
                   <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Date</label>
                   <input className="input w-36" type="date" value={localDate} onChange={(e) => setLocalDate(e.target.value)} />
                 </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    className="btn-secondary px-3 py-1.5 text-xs"
+                    disabled={patch.isPending}
+                    onClick={() => patch.mutate({ business: { domain: localDomain.trim() || null, tags: localTags.split(',').map((t) => t.trim()).filter(Boolean), date: localDate || null } })}
+                  >
+                    Save metadata
+                  </button>
+                </div>
               </div>
             </Section>
           )}
-          <Section title="Data fields">
-            {canEdit ? (
-              <DataFormEditor key={rec.edit_count} data={rec.data} onChange={(d) => {
-                const biz = { domain: localDomain.trim() || null, tags: localTags.split(',').map(t => t.trim()).filter(Boolean), date: localDate || null };
-                patch.mutate({ data: d, business: biz });
-              }} />
-            ) : (
-              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-xs">
-                {JSON.stringify(rec.data, null, 2)}
-              </pre>
-            )}
-          </Section>
+
+          {/* Raw fields — collapsed for power users */}
+          <details className="panel p-3">
+            <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-accent">
+              Raw fields editor (power users)
+            </summary>
+            <div className="mt-3">
+              {canEdit ? (
+                <DataFormEditor key={rec.edit_count} data={rec.data} onChange={(d) => {
+                  const biz = { domain: localDomain.trim() || null, tags: localTags.split(',').map((t) => t.trim()).filter(Boolean), date: localDate || null };
+                  patch.mutate({ data: d, business: biz });
+                }} />
+              ) : (
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-xs">
+                  {JSON.stringify(rec.data, null, 2)}
+                </pre>
+              )}
+            </div>
+          </details>
+
           {saved && <span className="block text-xs font-medium text-accent2">Saved — audit updated, status → edited</span>}
           {saveError && <span className="block text-xs text-red-500">{saveError}</span>}
         </div>
