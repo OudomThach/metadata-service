@@ -1,10 +1,11 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getUser, type DatasetOut } from "../api/client";
+import { toast } from "../lib/toast";
 import { MarkdownView } from "../components/MarkdownView";
 
 /**
- * Datasets — first-class entities with draft -> published -> archived.
+ * Datasets â€” first-class entities with draft -> published -> archived.
  * Published datasets are visible on the public Explore page.
  */
 export default function Datasets() {
@@ -14,10 +15,11 @@ export default function Datasets() {
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
-  const { data: page, isLoading } = useQuery({
-    queryKey: ["datasets", status, q],
-    queryFn: () => api.listDatasets({ page_size: 100, status: status || undefined, q: q || undefined }),
+  const { data: pageData, isLoading } = useQuery({
+    queryKey: ["datasets", status, q, page],
+    queryFn: () => api.listDatasets({ page: page, page_size: 25, status: status || undefined, q: q || undefined }),
   });
   const { data: orgs } = useQuery({ queryKey: ["organizations"], queryFn: api.listOrganizations });
   const { data: cats } = useQuery({ queryKey: ["categories"], queryFn: api.listCategories });
@@ -27,13 +29,22 @@ export default function Datasets() {
     qc.invalidateQueries({ queryKey: ["datasets"] });
     qc.invalidateQueries({ queryKey: ["records"] });
   };
-  const publish = useMutation({ mutationFn: (id: string) => api.publishDataset(id), onSuccess: invalidate });
-  const unpublish = useMutation({ mutationFn: (id: string) => api.unpublishDataset(id), onSuccess: invalidate });
-  const remove = useMutation({ mutationFn: (id: string) => api.deleteDataset(id), onSuccess: invalidate });
+  const publish = useMutation({
+    mutationFn: (id: string) => api.publishDataset(id),
+    onSuccess: () => { invalidate(); toast.success("Dataset published â€” live on Explore."); },
+  });
+  const unpublish = useMutation({
+    mutationFn: (id: string) => api.unpublishDataset(id),
+    onSuccess: () => { invalidate(); toast.info("Dataset unpublished."); },
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteDataset(id),
+    onSuccess: () => { invalidate(); toast.info("Dataset deleted."); },
+  });
 
-  const orgName = (id: number | null) => orgs?.find((o) => o.id === id)?.name ?? "—";
-  const catName = (id: number | null) => cats?.find((c) => c.id === id)?.name ?? "—";
-  const colName = (id: number | null) => cols?.find((c) => c.id === id)?.name ?? "—";
+  const orgName = (id: number | null) => orgs?.find((o) => o.id === id)?.name ?? "â€”";
+  const catName = (id: number | null) => cats?.find((c) => c.id === id)?.name ?? "â€”";
+  const colName = (id: number | null) => cols?.find((c) => c.id === id)?.name ?? "â€”";
 
   const downloadText = (name: string, content: string, type: string) => {
     const blob = new Blob([content], { type });
@@ -71,25 +82,25 @@ export default function Datasets() {
         <div>
           <h1 className="display">Datasets</h1>
           <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
-            First-class datasets — draft → published → archived ({page?.total ?? 0} total)
+            First-class datasets â€” draft â†’ published â†’ archived ({pageData?.total ?? 0} total)
           </p>
         </div>
         <div className="flex gap-2">
-          <input className="input w-52" placeholder="Search datasets…" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select className="input w-36" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <input className="input w-52" placeholder="Search datasetsâ€¦" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+          <select className="input w-36" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
             <option value="">All statuses</option>
             <option value="draft">draft</option><option value="published">published</option><option value="archived">archived</option>
           </select>
         </div>
       </div>
 
-      {isLoading && <div className="panel p-6 text-sm text-slate-500">Loading…</div>}
-      {!isLoading && (page?.items.length ?? 0) === 0 && (
-        <div className="panel p-6 text-sm text-slate-500">No datasets yet — OCR a document and complete the dataset form to create one.</div>
+      {isLoading && <div className="panel p-6 text-sm text-slate-500">Loadingâ€¦</div>}
+      {!isLoading && (pageData?.items.length ?? 0) === 0 && (
+        <div className="panel p-6 text-sm text-slate-500">No datasets yet â€” OCR a document and complete the dataset form to create one.</div>
       )}
 
       <div className="space-y-3">
-        {(page?.items ?? []).map((d) => {
+        {(pageData?.items ?? []).map((d) => {
           const expanded = openId === d.id;
           return (
             <div key={d.id} className="panel overflow-hidden">
@@ -97,8 +108,8 @@ export default function Datasets() {
                 <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpenId(expanded ? null : d.id)}>
                   <span className="block truncate font-medium text-slate-900 dark:text-slate-100">{d.name}</span>
                   <span className="mt-0.5 block truncate text-xs text-slate-500">
-                    {orgName(d.organization_id)} · {catName(d.category_id)} · {colName(d.collection_id)}
-                    {d.coverage_start && ` · ${d.coverage_start} → ${d.coverage_end ?? "…"}`}
+                    {orgName(d.organization_id)} Â· {catName(d.category_id)} Â· {colName(d.collection_id)}
+                    {d.coverage_start && ` Â· ${d.coverage_start} â†’ ${d.coverage_end ?? "â€¦"}`}
                   </span>
                 </button>
                 <span className={`badge ${STATUS_BADGE[d.status] ?? STATUS_BADGE.draft}`}>{d.status}</span>
@@ -118,11 +129,11 @@ export default function Datasets() {
                       </button>
                     )}
                     <button type="button" className="rounded-md px-2 py-1 text-xs text-red-500 hover:bg-red-50"
-                      onClick={() => { if (confirm(`Delete dataset "${d.name}"?`)) remove.mutate(d.id); }}>
+                      onClick={() => remove.mutate(d.id)}>
                       Delete
                     </button>
                     <button type="button" className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100" onClick={() => setOpenId(expanded ? null : d.id)}>
-                      {expanded ? "▲" : "▼"}
+                      {expanded ? "â–²" : "â–¼"}
                     </button>
                   </div>
                 )}
@@ -133,12 +144,12 @@ export default function Datasets() {
                   {d.description && <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">{d.description}</p>}
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     {d.record_id && (
-                      <a className="btn-ghost px-2.5 py-1 text-xs" href={`/records/${d.record_id}`} target="_blank" rel="noreferrer">Source record ↗</a>
+                      <a className="btn-ghost px-2.5 py-1 text-xs" href={`/records/${d.record_id}`} target="_blank" rel="noreferrer">Source record â†—</a>
                     )}
-                    {d.url && <a href={d.url} target="_blank" rel="noreferrer" className="btn-ghost px-2.5 py-1 text-xs">Source link ↗</a>}
+                    {d.url && <a href={d.url} target="_blank" rel="noreferrer" className="btn-ghost px-2.5 py-1 text-xs">Source link â†—</a>}
                     {d.file_base64 && d.file_name && (
                       <button type="button" className="btn-secondary px-2.5 py-1 text-xs" onClick={() => downloadFile(d)}>
-                        ⬇ {d.file_name}
+                        â¬‡ {d.file_name}
                       </button>
                     )}
                     {d.record_id && (
@@ -147,7 +158,7 @@ export default function Datasets() {
                           const csv = String(r.data?.csv ?? "");
                           if (csv) downloadText(`${d.name.replace(/[^\w.-]+/g, "_")}.csv`, csv, "text/csv");
                         }); }}>
-                        ⬇ CSV
+                        â¬‡ CSV
                       </button>
                     )}
                     {d.record_id && (
@@ -156,7 +167,7 @@ export default function Datasets() {
                           const md = String(r.data?.markdown ?? r.data?.full_text ?? "");
                           if (md) downloadText(`${d.name.replace(/[^\w.-]+/g, "_")}.md`, md, "text/markdown");
                         }); }}>
-                        ⬇ .md
+                        â¬‡ .md
                       </button>
                     )}
                   </div>
@@ -170,12 +181,23 @@ export default function Datasets() {
           );
         })}
       </div>
+
+      {pageData && pageData.total_pages > 1 && (
+        <div className="mt-3 flex items-center justify-between text-sm text-slate-500">
+          <span>{pageData.total} datasets · page {page}/{pageData.total_pages}</span>
+          <div className="flex gap-2">
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={page >= pageData.total_pages} onClick={() => setPage((p) => Math.min(pageData.total_pages, p + 1))}>Next</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 /** Rendered Markdown preview of the linked record's auto-saved artifact. */
 function DatasetPreview({ recordId, datasetName }: { recordId: string; datasetName: string }) {
+  const [view, setView] = useState<"markdown" | "csv">("markdown");
   const [raw, setRaw] = useState(false);
   const { data: rec } = useQuery({
     queryKey: ["record", recordId],
@@ -189,23 +211,74 @@ function DatasetPreview({ recordId, datasetName }: { recordId: string; datasetNa
     <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-white/10 dark:bg-white/5">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preview — {datasetName}</span>
-        {markdown && (
-          <button
-            type="button"
-            className="rounded-md px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            onClick={() => setRaw((r) => !r)}
-          >
-            {raw ? "Rendered" : "Raw source"}
+        <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+          <button type="button" onClick={() => setView("markdown")}
+            className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${view === "markdown" ? "bg-slate-100 text-slate-950" : "text-slate-500"}`}>
+            Markdown
           </button>
-        )}
+          <button type="button" onClick={() => setView("csv")}
+            className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${view === "csv" ? "bg-slate-100 text-slate-950" : "text-slate-500"}`}>
+            CSV
+          </button>
+        </div>
+        <button type="button" className="rounded-md px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          onClick={() => setRaw((r) => !r)}>
+          {raw ? "Rendered" : "Raw source"}
+        </button>
       </div>
-      {markdown && !raw ? (
-        <MarkdownView source={markdown} maxHeight="288px" showCopy={false} />
+      {view === "markdown" ? (
+        raw ? (
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-white p-3 font-mono text-[11px] text-slate-700 dark:bg-white/5 dark:text-slate-300">{markdown}</pre>
+        ) : (
+          <MarkdownView source={markdown} maxHeight="288px" showCopy={false} />
+        )
+      ) : raw ? (
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-white p-3 font-mono text-[11px] text-slate-700 dark:bg-white/5 dark:text-slate-300">{csv}</pre>
       ) : (
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-[11px] text-slate-700 dark:text-slate-300">
-          {raw ? markdown : csv}
-        </pre>
+        <CsvTable csv={csv} maxHeight={288} />
       )}
+    </div>
+  );
+}
+
+/** Tiny CSV renderer: rows -> table (quote-aware-ish, good enough for previews). */
+function CsvTable({ csv, maxHeight }: { csv: string; maxHeight: number }) {
+  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
+  const rows = lines.map((l) => {
+    const cells: string[] = [];
+    let cur = "";
+    let inQ = false;
+    for (let i = 0; i < l.length; i++) {
+      const ch = l[i];
+      if (inQ) {
+        if (ch === '"' && l[i + 1] === '"') { cur += '"'; i++; }
+        else if (ch === '"') inQ = false;
+        else cur += ch;
+      } else if (ch === '"') inQ = true;
+      else if (ch === ",") { cells.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    cells.push(cur);
+    return cells;
+  });
+  if (rows.length === 0) return <div className="text-xs text-slate-400">(empty CSV)</div>;
+  const [header, ...body] = rows;
+  return (
+    <div className="overflow-auto rounded-lg border border-slate-200 bg-white" style={{ maxHeight }}>
+      <table className="w-full border-collapse text-xs">
+        <thead className="sticky top-0">
+          <tr className="bg-slate-100">
+            {header.map((h, i) => <th key={i} className="border-b border-r border-slate-200 px-2.5 py-1.5 text-left font-semibold text-slate-800 last:border-r-0">{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((r, ri) => (
+            <tr key={ri} className="border-b border-slate-100 odd:bg-white even:bg-slate-50/60 last:border-b-0">
+              {r.map((c, ci) => <td key={ci} className="border-r border-slate-100 px-2.5 py-1.5 text-slate-700 last:border-r-0">{c}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

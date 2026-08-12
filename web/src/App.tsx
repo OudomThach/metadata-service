@@ -16,6 +16,7 @@ import Settings from "./pages/Settings";
 import Explore from "./pages/Explore";
 import DocsPage from "./pages/DocsPage";
 import LoginScreen from "./components/LoginScreen";
+import { Toaster } from "./components/Toaster";
 import { api, getToken, getUser, setSession } from "./api/client";
 import { useTheme } from "./hooks/useTheme";
 
@@ -254,6 +255,7 @@ export default function App() {
           <Route path="/docs" element={<DocsPage />} />
         </Routes>
       </main>
+      <Toaster />
     </div>
   );
 }

@@ -1,13 +1,14 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { getUser } from "../api/client";
+import { toast } from "../lib/toast";
 import StatusBadge from "../components/StatusBadge";
 
 /**
- * Verify queue — every `raw` extraction awaiting review.
- * Approve → status `verified`; Mark edited → status `edited` (needs corrections).
+ * Verify queue â€” every `raw` extraction awaiting review.
+ * Approve â†’ status `verified`; Mark edited â†’ status `edited` (needs corrections).
  */
 export default function VerifyQueue() {
   const qc = useQueryClient();
@@ -29,7 +30,7 @@ export default function VerifyQueue() {
       qc.invalidateQueries({ queryKey: ["records"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Failed to update status");
+      toast.error(err instanceof Error ? err.message : "Failed to update status");
     } finally {
       setBusy(null);
     }
@@ -41,9 +42,9 @@ export default function VerifyQueue() {
     try {
       const d = await api.promoteRecordToDataset(id);
       qc.invalidateQueries({ queryKey: ["datasets"] });
-      window.alert(`Promoted to dataset "${d.name}" (${d.status}) — manage it in Datasets.`);
+      toast.error(`Promoted to dataset "${d.name}" (${d.status}) â€” manage it in Datasets.`);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Promote failed");
+      toast.error(err instanceof Error ? err.message : "Promote failed");
     } finally {
       setBusy(null);
     }
@@ -66,7 +67,7 @@ export default function VerifyQueue() {
     setSelected(new Set());
     qc.invalidateQueries({ queryKey: ["records"] });
     qc.invalidateQueries({ queryKey: ["stats"] });
-    window.alert(`Marked ${ok} of ${selected.size} as ${status}.`);
+    toast.error(`Marked ${ok} of ${selected.size} as ${status}.`);
   };
 
   const toggle = (id: string) => {
@@ -92,7 +93,7 @@ export default function VerifyQueue() {
         <div>
           <h1 className="display">Verify queue</h1>
           <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
-            Extractions awaiting review ({items.length}) — check the OCR text & metadata, then approve or mark edited
+            Extractions awaiting review ({items.length}) â€” check the OCR text & metadata, then approve or mark edited
           </p>
         </div>
         <Link to="/records" className="btn-ghost px-3 py-1.5 text-xs">All records</Link>
@@ -108,7 +109,7 @@ export default function VerifyQueue() {
               disabled={busy !== null}
               onClick={() => void bulkSetStatus("verified")}
             >
-              {busy === "bulk" ? "Working…" : `✓ Approve ${selected.size}`}
+              {busy === "bulk" ? "Workingâ€¦" : `âœ“ Approve ${selected.size}`}
             </button>
             <button
               type="button"
@@ -141,13 +142,13 @@ export default function VerifyQueue() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td className="td text-slate-500" colSpan={6}>Loading…</td></tr>
+              <tr><td className="td text-slate-500" colSpan={6}>Loadingâ€¦</td></tr>
             )}
             {!isLoading && items.length === 0 && (
-              <tr><td className="td text-slate-500" colSpan={canAct ? 7 : 6}>Nothing to verify — queue is clear.</td></tr>
+              <tr><td className="td text-slate-500" colSpan={canAct ? 7 : 6}>Nothing to verify â€” queue is clear.</td></tr>
             )}
             {!isLoading && items.map((r) => {
-              const docName = (r.data?.document_name as string) || (r.source?.filename as string) || "—";
+              const docName = (r.data?.document_name as string) || (r.source?.filename as string) || "â€”";
               const hasDataset = Boolean((r.data?.dataset as Record<string, unknown> | undefined)?.name);
               return (
                 <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60 dark:border-white/5 dark:hover:bg-white/5">
@@ -161,9 +162,9 @@ export default function VerifyQueue() {
                     {hasDataset && <span className="badge ml-1.5 border-accent/30 bg-accent/10 text-accent">dataset</span>}
                   </td>
                   <td className="td text-slate-600 dark:text-slate-300">{r.type}</td>
-                  <td className="td text-slate-500">{r.source_model ?? "—"}</td>
+                  <td className="td text-slate-500">{r.source_model ?? "â€”"}</td>
                   <td className="td"><StatusBadge status={r.status} /></td>
-                  <td className="td text-slate-500">{r.created_at?.slice(0, 16).replace("T", " ") ?? "—"}</td>
+                  <td className="td text-slate-500">{r.created_at?.slice(0, 16).replace("T", " ") ?? "â€”"}</td>
                   <td className="td py-1.5">
                     {canAct ? (
                       <div className="flex items-center gap-1.5">
@@ -174,7 +175,7 @@ export default function VerifyQueue() {
                           onClick={() => void setStatus(r.id, "verified")}
                           title="Approve: mark as verified"
                         >
-                          ✓ Approve
+                          âœ“ Approve
                         </button>
                         <button
                           type="button"
@@ -193,7 +194,7 @@ export default function VerifyQueue() {
                             onClick={() => void promote(r.id)}
                             title="Create a first-class dataset from this record's dataset payload"
                           >
-                            → Dataset
+                            â†’ Dataset
                           </button>
                         )}
                         <Link to={`/records/${r.id}`} className="rounded-md px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900">
@@ -201,7 +202,7 @@ export default function VerifyQueue() {
                         </Link>
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400 italic">viewer — no actions</span>
+                      <span className="text-xs text-slate-400 italic">viewer â€” no actions</span>
                     )}
                   </td>
                 </tr>

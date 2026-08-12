@@ -1,8 +1,8 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api, getUser } from "../api/client";
 
-/** My profile — change password + account info. */
+/** My profile â€” change password + account info. */
 export default function Profile() {
   const me = getUser();
   const [current, setCurrent] = useState("");
@@ -24,11 +24,11 @@ export default function Profile() {
         <div className="mb-4 grid grid-cols-2 gap-4 text-sm">
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Username</div>
-            <div className="mt-0.5 font-medium text-slate-900 dark:text-slate-100">{me?.username ?? "—"}</div>
+            <div className="mt-0.5 font-medium text-slate-900 dark:text-slate-100">{me?.username ?? "â€”"}</div>
           </div>
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Role</div>
-            <div className="mt-0.5"><span className="badge border-accent/30 bg-accent/10 text-accent">{me?.role ?? "—"}</span></div>
+            <div className="mt-0.5"><span className="badge border-accent/30 bg-accent/10 text-accent">{me?.role ?? "â€”"}</span></div>
           </div>
         </div>
 
@@ -46,7 +46,7 @@ export default function Profile() {
             <button type="button" className="btn-primary px-4 py-1.5 text-xs"
               disabled={!current || next.length < 8 || change.isPending}
               onClick={() => change.mutate()}>
-              {change.isPending ? "Saving…" : "Update password"}
+              {change.isPending ? "Savingâ€¦" : "Update password"}
             </button>
             {done && <span className="ml-2 text-xs font-medium text-emerald-600">Password updated.</span>}
           </div>

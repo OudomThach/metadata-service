@@ -1,8 +1,9 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getUser } from "../api/client";
+import { toast } from "../lib/toast";
 
-/** Settings — portal configuration key/value store (admin). */
+/** Settings â€” portal configuration key/value store (admin). */
 export default function Settings() {
   const qc = useQueryClient();
   const me = getUser();
@@ -25,7 +26,7 @@ export default function Settings() {
       return api.upsertSetting(key, parsed);
     },
     onSuccess: () => { setKey(""); setValue("{}"); setError(null); invalidate(); },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) => { setError(err.message); toast.error(err.message); },
   });
   const remove = useMutation({ mutationFn: (k: string) => api.deleteSetting(k), onSuccess: invalidate });
 
@@ -36,7 +37,7 @@ export default function Settings() {
   return (
     <div className="p-6 max-w-4xl">
       <h1 className="display mb-1">Settings</h1>
-      <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">Portal configuration (key → JSON value)</p>
+      <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">Portal configuration (key â†’ JSON value)</p>
 
       <div className="panel mb-4 flex flex-wrap items-end gap-2 p-3">
         <div>
@@ -61,7 +62,7 @@ export default function Settings() {
             <tr><th className="th">Key</th><th className="th">Value</th><th className="th w-28">Updated</th><th className="th w-20"></th></tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td className="td text-slate-500" colSpan={4}>Loading…</td></tr>}
+            {isLoading && <tr><td className="td text-slate-500" colSpan={4}>Loadingâ€¦</td></tr>}
             {!isLoading && (settings ?? []).length === 0 && <tr><td className="td text-slate-500" colSpan={4}>No settings yet.</td></tr>}
             {!isLoading && (settings ?? []).map((s) => (
               <tr key={s.key} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60 dark:border-white/5 dark:hover:bg-white/5">

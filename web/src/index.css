@@ -280,3 +280,50 @@ html:not(.dark) .panel-sunken {
   background: rgb(255 255 255 / 0.03);
   border-color: rgb(255 255 255 / 0.08);
 }
+
+/* ── Romdoul Data Sharing polish: motion ─────────────────────────────────── */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+.toast-in { animation: toastIn 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.panel, .card { animation: fadeUp 0.3s ease both; }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.display { animation: fadeUp 0.35s ease both; }
+
+/* Hover lift on interactive cards */
+.panel { transition: box-shadow 0.2s ease, border-color 0.2s ease; }
+
+/* Nav icon tint follows the item state */
+.nav-item .nav-icon { transition: color 0.15s ease; }
+.nav-item-active .nav-icon { color: var(--romdoul-accent, #0891B2); }
+
+/* Buttons: tactile press */
+.btn-primary, .btn-secondary, .btn-ghost {
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.btn-primary:active, .btn-secondary:active, .btn-ghost:active { transform: scale(0.97); }
+
+/* Table rows: gentle appear + hover */
+tbody tr { transition: background-color 0.12s ease; }
+
+/* Staggered list items (dashboard activity, queues) */
+.panel > .space-y-1\.5 > div { animation: fadeUp 0.28s ease both; }
+.panel > .space-y-1\.5 > div:nth-child(2) { animation-delay: 0.03s; }
+.panel > .space-y-1\.5 > div:nth-child(3) { animation-delay: 0.06s; }
+.panel > .space-y-1\.5 > div:nth-child(4) { animation-delay: 0.09s; }
+.panel > .space-y-1\.5 > div:nth-child(5) { animation-delay: 0.12s; }
+.panel > .space-y-1\.5 > div:nth-child(6) { animation-delay: 0.15s; }
+.panel > .space-y-1\.5 > div:nth-child(7) { animation-delay: 0.18s; }
+.panel > .space-y-1\.5 > div:nth-child(8) { animation-delay: 0.21s; }
+.panel > .space-y-1\.5 > div:nth-child(9) { animation-delay: 0.24s; }
+.panel > .space-y-1\.5 > div:nth-child(10) { animation-delay: 0.27s; }

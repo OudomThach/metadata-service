@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import StatCard from "../components/StatCard";
-import { api } from "../api/client";
+import { api, getUser } from "../api/client";
 
 const STATUS_COLORS: Record<string, string> = {
   raw: "bg-slate-400",
@@ -117,6 +117,50 @@ export default function Dashboard() {
             })}
           </div>
         </div>
+      </div>
+
+      <RecentActivity />
+    </div>
+  );
+}
+
+/** Last ~10 audit events — "who did what" at a glance (admin). */
+function RecentActivity() {
+  const me = getUser();
+  if (me?.role !== "admin") return null;
+  const { data: events } = useQuery({
+    queryKey: ["audit", "recent"],
+    queryFn: () => api.listAudit({ limit: 10 }),
+    refetchInterval: 60_000,
+  });
+  if (!events || events.length === 0) return null;
+
+  const TONE: Record<string, string> = {
+    create: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    delete: "border-red-500/30 bg-red-500/10 text-red-500",
+    update: "border-accent2/30 bg-accent2/10 text-accent2",
+    publish: "border-accent/30 bg-accent/10 text-accent",
+    unpublish: "border-amber-500/30 bg-amber-500/10 text-amber-600",
+  };
+
+  return (
+    <div className="panel mt-6 p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-sm font-semibold text-slate-950 dark:text-slate-100">Recent activity</span>
+        <Link to="/audit" className="text-xs font-medium text-accent hover:underline">View all →</Link>
+      </div>
+      <div className="space-y-1.5">
+        {events.map((e) => (
+          <div key={e.id} className="flex flex-wrap items-center gap-2 text-sm">
+            <span className={`badge ${TONE[e.action] ?? TONE.update}`}>{e.action}</span>
+            <span className="font-mono text-xs text-slate-600 dark:text-slate-300">{e.actor}</span>
+            <span className="text-xs text-slate-400">
+              {e.entity_type}{e.entity_id ? ` · ${e.entity_id.slice(0, 10)}` : ""}
+              {(e.detail as { name?: string } | null)?.name ? ` · ${(e.detail as { name?: string }).name}` : ""}
+            </span>
+            <span className="ml-auto text-xs text-slate-400">{e.at.slice(0, 19).replace("T", " ")}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
