@@ -31,6 +31,49 @@ interface ReferenceRow {
 
 type PatchFn = (body: Record<string, unknown>) => void;
 
+/** Best available text of a record: full_text > markdown > json.structured_text
+ * > json.text > cells-rebuilt grid (table results often skip full_text). */
+export function deriveRecordText(data: Record<string, unknown> | undefined | null): string {
+  const d = data ?? {};
+  for (const key of ["full_text", "markdown"]) {
+    const v = String(d[key] ?? "").trim();
+    if (v) return v;
+  }
+  const j = d.json as Record<string, unknown> | undefined;
+  if (j && typeof j === "object") {
+    for (const key of ["structured_text", "text"]) {
+      const v = String(j[key] ?? "").trim();
+      if (v) return v;
+    }
+    const cells = j.cells;
+    if (Array.isArray(cells) && cells.length > 0) return cellsToPipe(cells);
+  }
+  const cells = d.cells;
+  if (Array.isArray(cells) && cells.length > 0) return cellsToPipe(cells);
+  return "";
+}
+
+function cellsToPipe(cells: unknown[]): string {
+  const grid = new Map<string, string>();
+  let maxR = 0;
+  let maxC = 0;
+  for (const c of cells) {
+    if (!c || typeof c !== "object") continue;
+    const row = c as { row?: number; col?: number; text?: string };
+    const r = Number(row.row ?? 0);
+    const col = Number(row.col ?? 0);
+    grid.set(`${r}:${col}`, String(row.text ?? ""));
+    maxR = Math.max(maxR, r);
+    maxC = Math.max(maxC, col);
+  }
+  const lines: string[] = [];
+  for (let r = 0; r <= maxR; r++) {
+    const row = Array.from({ length: maxC + 1 }, (_, c) => grid.get(`${r}:${c}`) ?? "");
+    lines.push(`| ${row.join(" | ")} |`);
+  }
+  return lines.join("\n");
+}
+
 function Section({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div className="panel p-4">
@@ -391,8 +434,14 @@ export function rowsToCsv(rows: string[][]): string {
 }
 
 function parseRowsFromText(text: string): string[][] {
-  const lines = text.split("\n").map((l) => l.trim()).filter((l) => l.includes("|"));
-  const rows = lines.map((l) => l.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim()));
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const pipe = lines.filter((l) => l.includes("|"));
+  const tabbed = lines.filter((l) => l.includes("\t"));
+  const rows = (pipe.length >= 2 ? pipe : tabbed).map((l) =>
+    l.includes("|")
+      ? l.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim())
+      : l.split("\t").map((c) => c.trim()),
+  );
   return rows.filter((r) => r.some((c) => c));
 }
 

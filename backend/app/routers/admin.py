@@ -29,6 +29,17 @@ class CaptureOcrIn(BaseModel):
     num_pages: int = 1
 
 
+def _normalize_table(text: str) -> str:
+    """Tab-separated rows (vLLM structured_text) -> pipe-table markdown so
+    markdown previews and the grid editors parse them as tables."""
+    if "|" in text:
+        return text
+    lines = [ln for ln in text.split("\n") if "\t" in ln]
+    if not lines:
+        return text
+    return "\n".join("| " + " | ".join(ln.split("\t")) + " |" for ln in lines)
+
+
 def _build_csv(text: str) -> str:
     """Pipe-table text -> CSV with BOM (mirrors the SPA's buildCsv)."""
     def esc(s: str) -> str:
@@ -65,6 +76,7 @@ async def capture_ocr(
     """
     text = (payload.full_text or "").strip()
     rid = uuid.uuid4().hex
+    markdown = _normalize_table(text)
     record = models.Record(
         id=rid,
         type="document",
@@ -75,8 +87,8 @@ async def capture_ocr(
         data={
             "document_name": payload.document_name,
             "full_text": text,
-            "markdown": text,
-            "csv": _build_csv(text),
+            "markdown": markdown,
+            "csv": _build_csv(markdown),
             "json": payload.result or {},
             "num_pages": int(payload.num_pages or 1),
         },
@@ -84,8 +96,8 @@ async def capture_ocr(
             "data": {
                 "document_name": payload.document_name,
                 "full_text": text,
-                "markdown": text,
-                "csv": _build_csv(text),
+                "markdown": markdown,
+                "csv": _build_csv(markdown),
                 "json": payload.result or {},
                 "num_pages": int(payload.num_pages or 1),
             },

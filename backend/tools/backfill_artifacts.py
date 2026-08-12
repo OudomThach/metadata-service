@@ -1,5 +1,9 @@
-"""One-off backfill: regenerate markdown/csv for records that have full_text
-but were saved before auto-save v2 (or via paths that skipped artifacts).
+"""One-off backfill: regenerate markdown/csv for records that have text (or
+table content) but were saved before auto-save v2 / via paths that skipped
+artifacts.
+
+Table records often have full_text="" while the grid lives in
+data.json.structured_text (or data.json.cells) — those are recovered too.
 
 Usage: python tools/backfill_artifacts.py
 Reads METADATA_ADMIN_USER / METADATA_ADMIN_PASS / METADATA_BASE_URL (defaults
@@ -40,13 +44,65 @@ def build_csv(text: str) -> str:
     return "\ufeff" + "\r\n".join(",".join(esc(c) for c in r) for r in rows)
 
 
+def cells_to_text(cells: list) -> str:
+    """Rebuild a pipe table from a cells grid (row/col/text)."""
+    grid: dict[tuple[int, int], str] = {}
+    max_r = max_c = 0
+    for c in cells:
+        if not isinstance(c, dict):
+            continue
+        r, col = int(c.get("row", 0) or 0), int(c.get("col", 0) or 0)
+        grid[(r, col)] = str(c.get("text") or "")
+        max_r, max_c = max(max_r, r), max(max_c, col)
+    if not grid:
+        return ""
+    lines = []
+    for r in range(max_r + 1):
+        cells_r = [grid.get((r, c), "") for c in range(max_c + 1)]
+        lines.append("| " + " | ".join(cells_r) + " |")
+    return "\n".join(lines)
+
+
+def normalize_table(text: str) -> str:
+    """Tab-separated rows (vLLM structured_text) -> pipe-table markdown."""
+    if "|" in text:
+        return text
+    lines = [ln for ln in text.split("\n") if "\t" in ln]
+    if not lines:
+        return text
+    return "\n".join("| " + " | ".join(ln.split("\t")) + " |" for ln in lines)
+
+
+def record_text(data: dict) -> str:
+    """Best available text: full_text > markdown > json.structured_text >
+    json.text > cells-rebuilt grid. Normalizes tab-separated tables to pipes
+    so markdown previews and the grid editors parse them."""
+    for key in ("full_text", "markdown"):
+        v = (data.get(key) or "").strip()
+        if v:
+            return normalize_table(v)
+    j = data.get("json")
+    if isinstance(j, dict):
+        for key in ("structured_text", "text"):
+            v = (j.get(key) or "").strip()
+            if v:
+                return normalize_table(v)
+        cells = j.get("cells")
+        if isinstance(cells, list) and cells:
+            return cells_to_text(cells)
+    cells = data.get("cells")
+    if isinstance(cells, list) and cells:
+        return cells_to_text(cells)
+    return ""
+
+
 def main() -> int:
     login = requests.post(f"{API}/auth/login", json={"username": USER, "password": PASS}, timeout=30)
     login.raise_for_status()
     token = login.json()["token"]
     headers = {"X-Session-Token": token}
 
-    fixed = skipped = page = 0
+    fixed = skipped = empty = page = 0
     while True:
         page += 1
         r = requests.get(f"{API}/records", params={"page": page, "page_size": 100}, headers=headers, timeout=60)
@@ -57,19 +113,22 @@ def main() -> int:
             break
         for rec in items:
             data = rec.get("data") or {}
-            text = (data.get("full_text") or "").strip()
             has_md = bool((data.get("markdown") or "").strip())
             has_csv = bool((data.get("csv") or "").strip())
-            if not text:
-                continue
-            if has_md and has_csv:
+            if has_md and has_csv and "|" in (data.get("markdown") or ""):
                 skipped += 1
+                continue
+            text = record_text(data)
+            if not text:
+                empty += 1
                 continue
             next_data = dict(data)
             if not has_md:
                 next_data["markdown"] = text
             if not has_csv:
                 next_data["csv"] = build_csv(text)
+            if not (next_data.get("full_text") or "").strip():
+                next_data["full_text"] = text
             pr = requests.patch(f"{API}/records/{rec['id']}", json={"data": next_data}, headers=headers, timeout=60)
             if pr.ok:
                 fixed += 1
@@ -78,7 +137,7 @@ def main() -> int:
         if page >= (body.get("total_pages") or 1):
             break
 
-    print(f"done — backfilled {fixed}, already-ok {skipped}")
+    print(f"done — backfilled {fixed}, already-ok {skipped}, still-empty {empty}")
     return 0
 
 
