@@ -2,7 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getUser } from "../api/client";
 
-/** Users â€” admin management: create, change role/org, delete. */
+/** Users — admin management: create, change role/org, delete. */
 export default function Users() {
   const qc = useQueryClient();
   const me = getUser();
@@ -77,7 +77,7 @@ export default function Users() {
             <tr><th className="th">Username</th><th className="th">Role</th><th className="th">Organization</th><th className="th w-64">Actions</th></tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td className="td text-slate-500" colSpan={4}>Loadingâ€¦</td></tr>}
+            {isLoading && <tr><td className="td text-slate-500" colSpan={4}>Loading…</td></tr>}
             {!isLoading && (users ?? []).length === 0 && <tr><td className="td text-slate-500" colSpan={4}>No users yet.</td></tr>}
             {!isLoading && (users ?? []).map((u) => (
               <tr key={u.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60 dark:border-white/5 dark:hover:bg-white/5">

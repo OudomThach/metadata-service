@@ -5,7 +5,7 @@ import { toast } from "../lib/toast";
 import { MarkdownView } from "../components/MarkdownView";
 
 /**
- * Datasets â€” first-class entities with draft -> published -> archived.
+ * Datasets — first-class entities with draft -> published -> archived.
  * Published datasets are visible on the public Explore page.
  */
 export default function Datasets() {
@@ -31,7 +31,7 @@ export default function Datasets() {
   };
   const publish = useMutation({
     mutationFn: (id: string) => api.publishDataset(id),
-    onSuccess: () => { invalidate(); toast.success("Dataset published â€” live on Explore."); },
+    onSuccess: () => { invalidate(); toast.success("Dataset published — live on Explore."); },
   });
   const unpublish = useMutation({
     mutationFn: (id: string) => api.unpublishDataset(id),
@@ -42,9 +42,9 @@ export default function Datasets() {
     onSuccess: () => { invalidate(); toast.info("Dataset deleted."); },
   });
 
-  const orgName = (id: number | null) => orgs?.find((o) => o.id === id)?.name ?? "â€”";
-  const catName = (id: number | null) => cats?.find((c) => c.id === id)?.name ?? "â€”";
-  const colName = (id: number | null) => cols?.find((c) => c.id === id)?.name ?? "â€”";
+  const orgName = (id: number | null) => orgs?.find((o) => o.id === id)?.name ?? "—";
+  const catName = (id: number | null) => cats?.find((c) => c.id === id)?.name ?? "—";
+  const colName = (id: number | null) => cols?.find((c) => c.id === id)?.name ?? "—";
 
   const downloadText = (name: string, content: string, type: string) => {
     const blob = new Blob([content], { type });
@@ -82,11 +82,11 @@ export default function Datasets() {
         <div>
           <h1 className="display">Datasets</h1>
           <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
-            First-class datasets â€” draft â†’ published â†’ archived ({pageData?.total ?? 0} total)
+            First-class datasets — draft → published → archived ({pageData?.total ?? 0} total)
           </p>
         </div>
         <div className="flex gap-2">
-          <input className="input w-52" placeholder="Search datasetsâ€¦" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+          <input className="input w-52" placeholder="Search datasets…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
           <select className="input w-36" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
             <option value="">All statuses</option>
             <option value="draft">draft</option><option value="published">published</option><option value="archived">archived</option>
@@ -94,9 +94,9 @@ export default function Datasets() {
         </div>
       </div>
 
-      {isLoading && <div className="panel p-6 text-sm text-slate-500">Loadingâ€¦</div>}
+      {isLoading && <div className="panel p-6 text-sm text-slate-500">Loading…</div>}
       {!isLoading && (pageData?.items.length ?? 0) === 0 && (
-        <div className="panel p-6 text-sm text-slate-500">No datasets yet â€” OCR a document and complete the dataset form to create one.</div>
+        <div className="panel p-6 text-sm text-slate-500">No datasets yet — OCR a document and complete the dataset form to create one.</div>
       )}
 
       <div className="space-y-3">
@@ -108,8 +108,8 @@ export default function Datasets() {
                 <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpenId(expanded ? null : d.id)}>
                   <span className="block truncate font-medium text-slate-900 dark:text-slate-100">{d.name}</span>
                   <span className="mt-0.5 block truncate text-xs text-slate-500">
-                    {orgName(d.organization_id)} Â· {catName(d.category_id)} Â· {colName(d.collection_id)}
-                    {d.coverage_start && ` Â· ${d.coverage_start} â†’ ${d.coverage_end ?? "â€¦"}`}
+                    {orgName(d.organization_id)} · {catName(d.category_id)} · {colName(d.collection_id)}
+                    {d.coverage_start && ` · ${d.coverage_start} → ${d.coverage_end ?? "…"}`}
                   </span>
                 </button>
                 <span className={`badge ${STATUS_BADGE[d.status] ?? STATUS_BADGE.draft}`}>{d.status}</span>
@@ -133,7 +133,7 @@ export default function Datasets() {
                       Delete
                     </button>
                     <button type="button" className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100" onClick={() => setOpenId(expanded ? null : d.id)}>
-                      {expanded ? "â–²" : "â–¼"}
+                      {expanded ? "▲" : "▼"}
                     </button>
                   </div>
                 )}
@@ -144,12 +144,12 @@ export default function Datasets() {
                   {d.description && <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">{d.description}</p>}
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     {d.record_id && (
-                      <a className="btn-ghost px-2.5 py-1 text-xs" href={`/records/${d.record_id}`} target="_blank" rel="noreferrer">Source record â†—</a>
+                      <a className="btn-ghost px-2.5 py-1 text-xs" href={`/records/${d.record_id}`} target="_blank" rel="noreferrer">Source record ↗</a>
                     )}
-                    {d.url && <a href={d.url} target="_blank" rel="noreferrer" className="btn-ghost px-2.5 py-1 text-xs">Source link â†—</a>}
+                    {d.url && <a href={d.url} target="_blank" rel="noreferrer" className="btn-ghost px-2.5 py-1 text-xs">Source link ↗</a>}
                     {d.file_base64 && d.file_name && (
                       <button type="button" className="btn-secondary px-2.5 py-1 text-xs" onClick={() => downloadFile(d)}>
-                        â¬‡ {d.file_name}
+                        ⬇ {d.file_name}
                       </button>
                     )}
                     {d.record_id && (
@@ -158,7 +158,7 @@ export default function Datasets() {
                           const csv = String(r.data?.csv ?? "");
                           if (csv) downloadText(`${d.name.replace(/[^\w.-]+/g, "_")}.csv`, csv, "text/csv");
                         }); }}>
-                        â¬‡ CSV
+                        ⬇ CSV
                       </button>
                     )}
                     {d.record_id && (
@@ -167,7 +167,7 @@ export default function Datasets() {
                           const md = String(r.data?.markdown ?? r.data?.full_text ?? "");
                           if (md) downloadText(`${d.name.replace(/[^\w.-]+/g, "_")}.md`, md, "text/markdown");
                         }); }}>
-                        â¬‡ .md
+                        ⬇ .md
                       </button>
                     )}
                   </div>

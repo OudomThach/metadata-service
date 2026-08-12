@@ -1,4 +1,4 @@
-﻿"""Datasets â€” first-class entities for Romdoul Data Sharing.
+﻿"""Datasets — first-class entities for Romdoul Data Sharing.
 
 A dataset is created from an extraction record + the post-OCR dataset form,
 then managed through draft -> published -> archived. The public read path
