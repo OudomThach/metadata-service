@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type AuditEventOut } from "../api/client";
 import StatusBadge from "../components/StatusBadge";
 import { MarkdownView } from "../components/MarkdownView";
-import { DatasetOverview, DatasetColumns, DatasetReferences } from "../components/DatasetEditor";
+import { DatasetOverview, DatasetColumns, DatasetReferences, DatasetData } from "../components/DatasetEditor";
 import { getUser } from "../api/client";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -142,7 +142,7 @@ export default function RecordDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"overview" | "columns" | "references" | "details" | "history">("overview");
+  const [tab, setTab] = useState<"overview" | "columns" | "references" | "data" | "details" | "history">("overview");
   const [textEditing, setTextEditing] = useState(false);
   const [textDraft, setTextDraft] = useState('');
   const [textView, setTextView] = useState<'text' | 'markdown'>('markdown');
@@ -188,6 +188,7 @@ export default function RecordDetail() {
         <TabButton active={tab === "overview"} onClick={() => setTab("overview")}>Overview</TabButton>
         <TabButton active={tab === "columns"} onClick={() => setTab("columns")}>Columns</TabButton>
         <TabButton active={tab === "references"} onClick={() => setTab("references")}>References</TabButton>
+        <TabButton active={tab === "data"} onClick={() => setTab("data")}>Data</TabButton>
         <TabButton active={tab === "details"} onClick={() => setTab("details")}>Details</TabButton>
         <TabButton active={tab === "history"} onClick={() => setTab("history")}>History</TabButton>
       </div>
@@ -261,6 +262,22 @@ export default function RecordDetail() {
 
           {/* OCR text — readable, editable like the review panel */}
           <Section title="OCR text">
+            {(() => {
+              const hasText = Boolean(String(rec.data?.full_text ?? rec.data?.markdown ?? "").trim());
+              if (!hasText) {
+                return (
+                  <div className="grid gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:bg-amber-500/10">
+                    <span className="font-medium text-amber-700 dark:text-amber-400">No text was extracted from this document.</span>
+                    <span className="text-amber-600/80 dark:text-amber-500/70">
+                      The OCR engine returned nothing for this scan — re-run it in the app, or upload a clearer image. The record is kept so nothing is lost.
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+            {Boolean(String(rec.data?.full_text ?? rec.data?.markdown ?? "").trim()) && (
+            <>
             <div className="mb-2 flex items-center gap-2">
               <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
                 <button
@@ -320,6 +337,8 @@ export default function RecordDetail() {
                 {String(rec.data?.full_text ?? rec.data?.markdown ?? "—")}
               </div>
             )}
+            </>
+            )}
           </Section>
 
           <DatasetOverview rec={rec} canEdit={canEdit} onPatch={(b) => patch.mutate(b)} />
@@ -332,6 +351,10 @@ export default function RecordDetail() {
 
       {tab === "references" && (
         <DatasetReferences rec={rec} canEdit={canEdit} onPatch={(b) => patch.mutate(b)} />
+      )}
+
+      {tab === "data" && (
+        <DatasetData rec={rec} canEdit={canEdit} onPatch={(b) => patch.mutate(b)} />
       )}
 
       {tab === "history" && (

@@ -370,6 +370,147 @@ export function DatasetColumns({ rec, canEdit, onPatch }: { rec: RecordOut; canE
   );
 }
 
+// ── Data (editable table grid) ────────────────────────────────────────────── //
+function esc(s: string): string {
+  return `"${String(s ?? "").replace(/"/g, '""')}"`;
+}
+
+export function rowsToMarkdown(rows: string[][], hasHeader: boolean): string {
+  if (rows.length === 0) return "";
+  const width = Math.max(...rows.map((r) => r.length));
+  const pad = (r: string[]) => [...r, ...Array<string>(Math.max(0, width - r.length)).fill("")];
+  const lines = rows.map((r) => `| ${pad(r).join(" | ")} |`);
+  if (hasHeader && rows.length > 1) {
+    lines.splice(1, 0, `| ${Array<string>(width).fill("---").join(" | ")} |`);
+  }
+  return lines.join("\n");
+}
+
+export function rowsToCsv(rows: string[][]): string {
+  return "\uFEFF" + rows.map((r) => r.map(esc).join(",")).join("\r\n");
+}
+
+function parseRowsFromText(text: string): string[][] {
+  const lines = text.split("\n").map((l) => l.trim()).filter((l) => l.includes("|"));
+  const rows = lines.map((l) => l.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim()));
+  return rows.filter((r) => r.some((c) => c));
+}
+
+export function DatasetData({ rec, canEdit, onPatch }: { rec: RecordOut; canEdit: boolean; onPatch: PatchFn }) {
+  const initial = (() => {
+    const stored = Array.isArray(rec.data?.rows) ? (rec.data.rows as unknown[][]) : null;
+    if (stored) return stored.map((r) => r.map((c) => String(c ?? "")));
+    const text = String(rec.data?.markdown ?? rec.data?.full_text ?? "");
+    return parseRowsFromText(text);
+  })();
+  const columnNames = (Array.isArray(rec.data?.columns) ? (rec.data.columns as unknown[]) : []).map((c) =>
+    String((c as { name?: string }).name ?? ""),
+  );
+  const hasHeader = columnNames.length > 0;
+  const [rows, setRows] = useState<string[][]>(initial);
+  const [headerRow, setHeaderRow] = useState(columnNames);
+
+  const width = Math.max(1, ...rows.map((r) => r.length), headerRow.length);
+  const padRow = (r: string[]) => [...r, ...Array<string>(Math.max(0, width - r.length)).fill("")];
+
+  const setCell = (r: number, c: number, v: string) =>
+    setRows((rs) => rs.map((row, ri) => (ri === r ? padRow(row).map((x, ci) => (ci === c ? v : x)) : row)));
+  const addRow = () => setRows((rs) => [...rs, Array<string>(width).fill("")]);
+  const removeRow = (r: number) => setRows((rs) => rs.filter((_, ri) => ri !== r));
+  const addColumn = () => setHeaderRow((hs) => [...hs, ""]);
+  const removeColumn = (c: number) => {
+    setRows((rs) => rs.map((row) => padRow(row).filter((_, ci) => ci !== c)));
+    setHeaderRow((hs) => hs.filter((_, ci) => ci !== c));
+  };
+  const moveColumn = (c: number, dir: -1 | 1) => {
+    const j = c + dir;
+    if (j < 0 || j >= width) return;
+    setRows((rs) => rs.map((row) => {
+      const p = padRow(row);
+      [p[c], p[j]] = [p[j], p[c]];
+      return p;
+    }));
+    setHeaderRow((hs) => {
+      const h = [...hs, ...Array<string>(Math.max(0, width - hs.length)).fill("")];
+      [h[c], h[j]] = [h[j], h[c]];
+      return h;
+    });
+  };
+
+  const save = () => {
+    const grid = rows.map(padRow);
+    const markdown = rowsToMarkdown([...(hasHeader ? [headerRow] : []), ...grid], hasHeader);
+    const csv = rowsToCsv([...(hasHeader ? [headerRow] : []), ...grid]);
+    onPatch({ data: { ...rec.data, rows: grid, markdown, csv } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <Section title={`Data (${rows.length} rows × ${width} cols)`} right={<span className="text-xs text-slate-400">click a cell to edit · markdown + csv regenerate on save</span>}>
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full border-collapse text-sm">
+            {hasHeader && (
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  {headerRow.map((h, c) => (
+                    <th key={c} className="border-r border-slate-200 px-1 py-1 last:border-r-0">
+                      <div className="flex items-center gap-0.5">
+                        <input
+                          className="input w-full min-w-24 py-1 text-xs font-semibold"
+                          placeholder={`Column ${c + 1}`}
+                          value={h}
+                          onChange={(e) => setHeaderRow((hs) => hs.map((x, ci) => (ci === c ? e.target.value : x)))}
+                          disabled={!canEdit}
+                        />
+                        {canEdit && (
+                          <span className="flex shrink-0 flex-col">
+                            <button type="button" className="px-0.5 text-[9px] text-slate-400 hover:text-slate-700" disabled={c === 0} onClick={() => moveColumn(c, -1)}>▲</button>
+                            <button type="button" className="px-0.5 text-[9px] text-slate-400 hover:text-slate-700" disabled={c === width - 1} onClick={() => moveColumn(c, 1)}>▼</button>
+                            <button type="button" className="px-0.5 text-[9px] text-red-400 hover:text-red-600" onClick={() => removeColumn(c)}>✕</button>
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+            )}
+            <tbody>
+              {rows.map((row, r) => (
+                <tr key={r} className="border-b border-slate-100 last:border-b-0 odd:bg-white even:bg-slate-50/60">
+                  {padRow(row).map((cell, c) => (
+                    <td key={c} className="border-r border-slate-100 px-1 py-0.5 last:border-r-0">
+                      <input
+                        className="w-full min-w-20 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-slate-700 hover:border-slate-200 focus:border-accent focus:bg-white focus:outline-none"
+                        value={cell}
+                        onChange={(e) => setCell(r, c, e.target.value)}
+                        disabled={!canEdit}
+                      />
+                    </td>
+                  ))}
+                  {canEdit && (
+                    <td className="w-8 px-1">
+                      <button type="button" className="rounded px-1 text-xs text-red-400 hover:bg-red-50 hover:text-red-600" onClick={() => removeRow(r)} title="Delete row">✕</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {rows.length === 0 && <div className="py-3 text-sm text-slate-500">No table data parsed from this record yet.</div>}
+        {canEdit && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={addRow}>+ Add row</button>
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={addColumn}>+ Add column</button>
+            <button type="button" className="btn-primary px-4 py-1.5 text-xs" onClick={save}>Save data</button>
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
 // ── References ────────────────────────────────────────────────────────────── //
 export function DatasetReferences({ rec, canEdit, onPatch }: { rec: RecordOut; canEdit: boolean; onPatch: PatchFn }) {
   const [refs, setRefs] = useState<ReferenceRow[]>(() =>
