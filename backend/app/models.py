@@ -149,6 +149,9 @@ class Dataset(Base):
     file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     file_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     file_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Schema editor + references (from the record's data.columns / data.references).
+    columns: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    references: Mapped[list | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

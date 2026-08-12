@@ -206,6 +206,8 @@ class DatasetOut(BaseModel):
     file_size: int | None = None
     file_type: str | None = None
     file_base64: str | None = None
+    columns: list[dict[str, Any]] | None = None
+    references: list[dict[str, Any]] | None = None
     created_at: dt.datetime
     updated_at: dt.datetime | None = None
 

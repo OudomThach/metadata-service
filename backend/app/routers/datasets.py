@@ -20,6 +20,7 @@ from .. import models, schemas
 from ..audit_log import log_event
 from ..db import get_session
 from ..errors import APIError
+from ..promote import find_dataset_for_record, promote_record_to_dataset
 from ..security import Actor, require_auth, require_auth_optional
 
 router = APIRouter(prefix="/api/v1/datasets", tags=["datasets"])
@@ -34,7 +35,8 @@ def _out(d: models.Dataset) -> schemas.DatasetOut:
         coverage_start=d.coverage_start, coverage_end=d.coverage_end, frequency=d.frequency,
         url=d.url, status=d.status, published_at=d.published_at,
         file_name=d.file_name, file_size=d.file_size, file_type=d.file_type,
-        file_base64=d.file_base64, created_at=d.created_at, updated_at=d.updated_at,
+        file_base64=d.file_base64, columns=d.columns, references=d.references,
+        created_at=d.created_at, updated_at=d.updated_at,
     )
 
 
@@ -151,48 +153,19 @@ async def create_dataset_from_record(
     session: AsyncSession = Depends(get_session),
     actor: Actor = Depends(require_auth),
 ) -> schemas.DatasetOut:
-    """Lift a record's post-OCR dataset payload (data.dataset + embedded file)
-    into a first-class Dataset row (status draft)."""
+    """Lift a record's post-OCR dataset payload (data.dataset + embedded file
+    + columns + references) into a first-class Dataset row (status draft)."""
     if actor.role not in ("admin", "editor"):
         raise APIError(403, "forbidden", "Admin or editor role required")
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
-    ds_payload = (rec.data or {}).get("dataset") or {}
-    if not ds_payload.get("name"):
+    if not ((rec.data or {}).get("dataset") or {}).get("name"):
         raise APIError(422, "bad_request", "record has no dataset payload")
-    existing = await session.scalar(select(models.Dataset).where(models.Dataset.record_id == record_id))
-    if existing:
+    if await find_dataset_for_record(session, record_id):
         raise APIError(409, "duplicate", "record already promoted to a dataset")
 
-    def _date(v: str | None) -> dt.date | None:
-        if not v:
-            return None
-        try:
-            return dt.date.fromisoformat(str(v)[:10])
-        except ValueError:
-            return None
-
-    file_meta = ds_payload.get("file") or {}
-    d = models.Dataset(
-        id=uuid.uuid4().hex,
-        record_id=record_id,
-        name=ds_payload.get("name") or "Untitled dataset",
-        description=ds_payload.get("description"),
-        coverage_start=_date(ds_payload.get("coverage_start")),
-        coverage_end=_date(ds_payload.get("coverage_end")),
-        frequency=ds_payload.get("frequency"),
-        url=ds_payload.get("url"),
-        file_name=file_meta.get("name"),
-        file_size=file_meta.get("size"),
-        file_type=file_meta.get("type"),
-        file_base64=ds_payload.get("file_base64"),
-        status="draft",
-    )
-    session.add(d)
-    await session.flush()
-    await log_event(session, actor=actor.label(), action="create", entity_type="dataset",
-                    entity_id=d.id, detail={"name": d.name, "from_record": record_id})
+    d = await promote_record_to_dataset(session, rec, actor.label(), auto=False)
     await session.commit()
     await session.refresh(d)
     return _out(d)

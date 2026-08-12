@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import crud, models, schemas
 from ..db import get_session
 from ..errors import APIError
+from ..promote import find_dataset_for_record, promote_record_to_dataset
 from ..security import Actor, require_auth
 from .webhooks import fire_webhooks
 
@@ -267,6 +268,7 @@ async def patch_record(
         env.setdefault("audit", {})["status"] = payload.status
         if payload.status == "verified":
             rec.status_verified_at = now
+            await _auto_promote(session, rec, _actor)
     elif changed:
         env.setdefault("audit", {})["status"] = "edited"
 
@@ -302,3 +304,19 @@ async def delete_record(
     await session.delete(rec)
     await session.commit()
     asyncio.create_task(fire_webhooks(record_id, "delete", rec.envelope or {}))
+
+
+async def _auto_promote(session: AsyncSession, rec: models.Record, actor: Actor) -> None:
+    """When a record is verified and carries a dataset payload, promote it to a
+    first-class Dataset (draft) unless auto_promote is disabled in settings or
+    the record was already promoted. Runs inside the caller's transaction."""
+    if actor.role not in ("admin", "editor"):
+        return
+    if not ((rec.data or {}).get("dataset") or {}).get("name"):
+        return
+    if await find_dataset_for_record(session, rec.id):
+        return
+    setting = await session.get(models.Setting, "auto_promote")
+    if setting is not None and (setting.value or {}).get("enabled") is False:
+        return
+    await promote_record_to_dataset(session, rec, actor.label(), auto=True)
