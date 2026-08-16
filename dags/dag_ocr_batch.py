@@ -17,6 +17,7 @@ Tune SCHEDULE / input list per deployment.
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime
 
@@ -64,7 +65,9 @@ def _ingest_results(job_id: str, **context) -> int:
         if not line.strip():
             continue
         item = json.loads(line)
+        doc_id = re.sub(r"[^A-Za-z0-9_-]", "-", str(item.get("filename")))
         payload = {
+            "id": f"doc-{doc_id}",
             "type": "document",
             "source": {
                 "document_id": item.get("filename"),
