@@ -38,14 +38,23 @@ def apply_filters(
         stmt = stmt.where(models.Record.business_date >= business_from)
     if business_to:
         stmt = stmt.where(models.Record.business_date <= business_to)
-    if created_from:
-        stmt = stmt.where(models.Record.created_at >= created_from)
-    if created_to:
-        stmt = stmt.where(models.Record.created_at <= created_to)
-    if edited_from:
-        stmt = stmt.where(models.Record.edited_at >= edited_from)
-    if edited_to:
-        stmt = stmt.where(models.Record.edited_at <= edited_to)
+    if created_from and edited_from:
+        # CDC sync window: pull records that are NEW since the watermark OR
+        # UPDATED since it (a never-edited record has edited_at=null and must
+        # still match via created_at).
+        stmt = stmt.where(or_(models.Record.created_at >= created_from, models.Record.edited_at >= edited_from))
+    else:
+        if created_from:
+            stmt = stmt.where(models.Record.created_at >= created_from)
+        if edited_from:
+            stmt = stmt.where(models.Record.edited_at >= edited_from)
+    if created_to and edited_to:
+        stmt = stmt.where(or_(models.Record.created_at <= created_to, models.Record.edited_at <= edited_to))
+    else:
+        if created_to:
+            stmt = stmt.where(models.Record.created_at <= created_to)
+        if edited_to:
+            stmt = stmt.where(models.Record.edited_at <= edited_to)
     if q:
         # Full-text-ish search across the extraction data (incl. full_text)
         # AND the envelope (business metadata, tags, titles, ...).

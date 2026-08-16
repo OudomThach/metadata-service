@@ -66,6 +66,28 @@ async def test_edited_from_filter(auth_client):
     assert r.json()["items"][0]["id"] == "e-1"
 
 
+async def test_cdc_sync_window_is_or_semantics(auth_client):
+    """CDC pull: records that are NEW since X OR UPDATED since X. A record
+    created after the watermark but never edited (edited_at=null) must match."""
+    await auth_client.post("/api/v1/records", json=sample_record(id="cdc-new"))  # never edited
+    await auth_client.post("/api/v1/records", json=sample_record(id="cdc-old"))
+    await auth_client.patch("/api/v1/records/cdc-old", json={"data": {"n": 2}})  # edited
+
+    # Future watermark: nothing matches.
+    r = await auth_client.get(
+        "/api/v1/records", params={"created_from": "2100-01-01T00:00:00Z", "edited_from": "2100-01-01T00:00:00Z"}
+    )
+    assert r.json()["total"] == 0
+
+    # Past watermark: BOTH the never-edited new record and the edited one.
+    r = await auth_client.get(
+        "/api/v1/records", params={"created_from": "2000-01-01T00:00:00Z", "edited_from": "2000-01-01T00:00:00Z"}
+    )
+    ids = {i["id"] for i in r.json()["items"]}
+    assert "cdc-new" in ids, "never-edited record must match via created_at"
+    assert "cdc-old" in ids
+
+
 async def test_export_parquet(auth_client):
     await auth_client.post("/api/v1/records", json=sample_record())
     r = await auth_client.get("/api/v1/export", params={"format": "parquet"})
