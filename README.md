@@ -57,25 +57,36 @@ Rules: `data` is the only domain-dependent part. The envelope is fixed for every
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/v1/records` | Ingest (client id = idempotent) |
+| POST | `/api/v1/records` | Ingest (client id = idempotent; `?on_duplicate=error\|skip\|replace`) |
+| POST | `/api/v1/records/batch` | Ingest up to 500 records in one call, per-item isolation |
 | GET | `/api/v1/records` | List — filters: `type`, `domain`, `status`, `tag`, `business_from/to`, `created_from/to`, `q`; pagination `page`, `page_size` (≤200); `sort=col:asc\|desc` |
 | GET | `/api/v1/records/{id}` | One record |
 | PATCH | `/api/v1/records/{id}` | Edit `data` / `business` / `status`; header `X-Edited-By: user:<name>`; audit auto-updated |
 | DELETE | `/api/v1/records/{id}` | Delete (audit entry kept) |
-| GET | `/api/v1/export?format=csv\|json` | Export (flattened CSV for spreadsheets) |
+| GET | `/api/v1/export?format=csv\|json\|jsonl` | Export (flattened CSV for spreadsheets; JSONL streams for pipelines) |
 | GET | `/api/v1/stats` | Aggregates by status/type/domain, per-day |
 | GET | `/api/v1/meta` | Distinct types/domains for filter dropdowns |
 | GET | `/health` | Liveness + DB check |
+| POST | `/api/v1/capture-ocr` | Save an OCR result with server-side markdown/CSV artifacts |
+| GET/POST | `/api/v1/webhooks` | Event-driven pipeline hooks (`create`/`update`/`delete`) |
+| CRUD | `/api/v1/organizations`, `/api/v1/categories`, `/api/v1/collections` | Data-sharing taxonomy |
+| CRUD | `/api/v1/datasets` | First-class datasets (draft → published → archived), `?public=1` browse |
+| GET/PUT/DELETE | `/api/v1/settings`, `/api/v1/audit`, `/api/v1/auth/users` | Admin surface (admin role) |
+
+See [`docs/INTEGRATION.md`](docs/INTEGRATION.md) for Airflow examples, error
+codes, idempotency semantics, and export recipes.
 
 ### Auth
 
 Portal users: username + password (`users`/`sessions`, PBKDF2 hashed, 30-day
 tokens) — session sent as `X-Session-Token`. Machine consumers: `X-API-Key`.
 `POST /records` stays open so pipelines record without shipping credentials.
+The service refuses to boot with a default/empty `METADATA_ADMIN_PASSWORD`.
 
 | Method | Path | Auth |
 |---|---|---|
 | POST | `/api/v1/records` | open |
+| POST | `/api/v1/records/batch` | open |
 | POST | `/api/v1/auth/login` | open |
 | GET | `/api/v1/auth/me`, POST `/api/v1/auth/logout` | session |
 | GET | `/api/v1/records` … | session or `X-API-Key` |
@@ -83,6 +94,7 @@ tokens) — session sent as `X-Session-Token`. Machine consumers: `X-API-Key`.
 | PATCH/DELETE | `/api/v1/records/{id}` | session or `X-API-Key` |
 | GET | `/api/v1/export` | session or `X-API-Key` |
 | GET | `/api/v1/stats`, `/api/v1/meta` | session or `X-API-Key` |
+| GET | `/api/v1/settings`, `/api/v1/audit`, `/api/v1/webhooks` | admin (session or `X-API-Key`) |
 | GET | `/health`, `/api/docs` | open |
 
 ### Error format

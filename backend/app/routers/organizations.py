@@ -6,7 +6,7 @@ Reads are open (public explore lists orgs); writes require editor+.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models, schemas
@@ -44,8 +44,14 @@ async def create_organization(
     org = models.Organization(name=payload.name, org_type=payload.org_type, contact=payload.contact)
     session.add(org)
     await session.flush()
-    await log_event(session, actor=actor.label(), action="create", entity_type="organization",
-                    entity_id=str(org.id), detail={"name": org.name})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="create",
+        entity_type="organization",
+        entity_id=str(org.id),
+        detail={"name": org.name},
+    )
     await session.commit()
     await session.refresh(org)
     return _out(org)
@@ -66,8 +72,14 @@ async def update_organization(
     org.name = payload.name
     org.org_type = payload.org_type
     org.contact = payload.contact
-    await log_event(session, actor=actor.label(), action="update", entity_type="organization",
-                    entity_id=str(org_id), detail={"name": org.name})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="update",
+        entity_type="organization",
+        entity_id=str(org_id),
+        detail={"name": org.name},
+    )
     await session.commit()
     await session.refresh(org)
     return _out(org)
@@ -84,7 +96,13 @@ async def delete_organization(
     org = await session.get(models.Organization, org_id)
     if not org:
         raise APIError(404, "not_found", f"organization {org_id} not found")
-    await log_event(session, actor=actor.label(), action="delete", entity_type="organization",
-                    entity_id=str(org_id), detail={"name": org.name})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="delete",
+        entity_type="organization",
+        entity_id=str(org_id),
+        detail={"name": org.name},
+    )
     await session.delete(org)
     await session.commit()

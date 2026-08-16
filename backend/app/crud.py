@@ -8,7 +8,7 @@ from . import models, schemas
 
 
 def apply_filters(
-    stmt: Select,
+    stmt: Select[tuple[models.Record]],
     *,
     dialect: str,
     type: str | None,
@@ -20,7 +20,7 @@ def apply_filters(
     created_from: dt.datetime | None,
     created_to: dt.datetime | None,
     q: str | None,
-) -> Select:
+) -> Select[tuple[models.Record]]:
     if type:
         stmt = stmt.where(models.Record.type == type)
     if domain:
@@ -42,24 +42,26 @@ def apply_filters(
         stmt = stmt.where(models.Record.created_at <= created_to)
     if q:
         # Full-text-ish search across the extraction data (incl. full_text)
-        # AND the business metadata (owner, category, title, tags, ...).
+        # AND the envelope (business metadata, tags, titles, ...).
         stmt = stmt.where(
             or_(
                 cast(models.Record.data, Text).ilike(f"%{q}%"),
-                cast(models.Record.business, Text).ilike(f"%{q}%"),
+                cast(models.Record.envelope, Text).ilike(f"%{q}%"),
             )
         )
     return stmt
 
 
-def sort_stmt(stmt: Select, sort: str) -> Select:
+def sort_stmt(stmt: Select[tuple[models.Record]], sort: str) -> Select[tuple[models.Record]]:
     col, _, direction = sort.partition(":")
     if col not in ("created_at", "business_date", "edited_at", "type", "status"):
         col = "created_at"
     column = getattr(models.Record, col)
-    if col == "business_date" and direction in ("asc", "desc"):
-        return stmt.order_by(column.is_(None) if direction == "asc" else None, column.asc() if direction == "asc" else column.desc().nullslast())
-    return stmt.order_by(column.desc() if direction == "desc" else column.asc())
+    if direction == "desc":
+        return stmt.order_by(column.desc().nullslast())
+    if col == "business_date":
+        return stmt.order_by(column.is_(None), column.asc())
+    return stmt.order_by(column.asc())
 
 
 def to_out(rec: models.Record) -> schemas.RecordOut:
@@ -94,7 +96,7 @@ def to_out(rec: models.Record) -> schemas.RecordOut:
     )
 
 
-async def log_audit(session: AsyncSession, record_id: str, action: str, actor: str, snapshot: dict) -> None:
+async def log_audit(session: AsyncSession, record_id: str, action: str, actor: str, snapshot: dict[str, Any]) -> None:
     session.add(
         models.AuditEvent(
             record_id=record_id,
@@ -111,25 +113,55 @@ async def get_types(session: AsyncSession) -> list[str]:
 
 
 async def get_domains(session: AsyncSession) -> list[str]:
-    res = await session.execute(select(models.Record.domain).distinct().where(models.Record.domain.is_not(None)).order_by(models.Record.domain))
+    res = await session.execute(
+        select(models.Record.domain).distinct().where(models.Record.domain.is_not(None)).order_by(models.Record.domain)
+    )
     return [r[0] for r in res]
 
 
 async def stats(session: AsyncSession) -> dict[str, Any]:
     total = (await session.execute(select(func.count()).select_from(models.Record))).scalar() or 0
-    by_status = dict((await session.execute(select(models.Record.status, func.count()).group_by(models.Record.status))).all())
-    by_type = dict(
-        (await session.execute(select(models.Record.type, func.count()).group_by(models.Record.type).order_by(models.Record.type))).all()
-    )
-    by_domain = dict(
-        (await session.execute(select(models.Record.domain, func.count()).where(models.Record.domain.is_not(None)).group_by(models.Record.domain))).all()
-    )
-    by_model = dict(
-        (await session.execute(select(models.Record.source_model, func.count()).where(models.Record.source_model.is_not(None)).group_by(models.Record.source_model))).all()
-    )
-    edited = (await session.execute(select(func.count()).select_from(models.Record).where(models.Record.edit_count > 0))).scalar() or 0
+    by_status: dict[str, int] = {
+        k: int(v)
+        for k, v in (
+            await session.execute(select(models.Record.status, func.count()).group_by(models.Record.status))
+        ).all()
+    }
+    by_type: dict[str, int] = {
+        k: int(v)
+        for k, v in (
+            await session.execute(
+                select(models.Record.type, func.count()).group_by(models.Record.type).order_by(models.Record.type)
+            )
+        ).all()
+    }
+    by_domain: dict[str, int] = {
+        k: int(v)
+        for k, v in (
+            await session.execute(
+                select(models.Record.domain, func.count())
+                .where(models.Record.domain.is_not(None))
+                .group_by(models.Record.domain)
+            )
+        ).all()
+    }
+    by_model: dict[str, int] = {
+        (k or "unknown"): int(v)
+        for k, v in (
+            await session.execute(
+                select(models.Record.source_model, func.count())
+                .where(models.Record.source_model.is_not(None))
+                .group_by(models.Record.source_model)
+            )
+        ).all()
+    }
+    edited = (
+        await session.execute(select(func.count()).select_from(models.Record).where(models.Record.edit_count > 0))
+    ).scalar() or 0
     verified = by_status.get("verified", 0)
-    coverage_avg = (await session.execute(select(func.avg(models.Record.coverage)).where(models.Record.coverage.is_not(None)))).scalar()
+    coverage_avg = (
+        await session.execute(select(func.avg(models.Record.coverage)).where(models.Record.coverage.is_not(None)))
+    ).scalar()
     recent = (
         await session.execute(
             select(func.date(models.Record.created_at), func.count())
@@ -140,12 +172,10 @@ async def stats(session: AsyncSession) -> dict[str, Any]:
     ).all()
     return {
         "total": total,
-        "by_status": {k: int(v) for k, v in by_status.items()},
-        "by_type": {k: int(v) for k, v in by_type.items()},
-        "by_domain": {k: int(v) for k, v in by_domain.items()},
-        "by_model": {k or "unknown": int(v) for k, v in by_model.items()},
-        "by_domain": {k: int(v) for k, v in by_domain.items()},
-        "by_domain": {k: int(v) for k, v in by_domain.items()},
+        "by_status": by_status,
+        "by_type": by_type,
+        "by_domain": by_domain,
+        "by_model": by_model,
         "edited": int(edited),
         "verified": int(verified),
         "coverage_avg": float(coverage_avg) if coverage_avg is not None else None,

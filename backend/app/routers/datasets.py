@@ -1,4 +1,4 @@
-﻿"""Datasets — first-class entities for Romdoul Data Sharing.
+"""Datasets — first-class entities for Romdoul Data Sharing.
 
 A dataset is created from an extraction record + the post-OCR dataset form,
 then managed through draft -> published -> archived. The public read path
@@ -8,7 +8,6 @@ Explore page can browse/download without login.
 
 from __future__ import annotations
 
-import datetime as dt
 import uuid
 from datetime import datetime, timezone
 
@@ -25,18 +24,30 @@ from ..security import Actor, require_auth, require_auth_optional
 
 router = APIRouter(prefix="/api/v1/datasets", tags=["datasets"])
 
-STATUSES = ("draft", "published", "archived")
-
 
 def _out(d: models.Dataset) -> schemas.DatasetOut:
     return schemas.DatasetOut(
-        id=d.id, record_id=d.record_id, name=d.name, description=d.description,
-        organization_id=d.organization_id, category_id=d.category_id, collection_id=d.collection_id,
-        coverage_start=d.coverage_start, coverage_end=d.coverage_end, frequency=d.frequency,
-        url=d.url, status=d.status, published_at=d.published_at,
-        file_name=d.file_name, file_size=d.file_size, file_type=d.file_type,
-        file_base64=d.file_base64, columns=d.columns, references=d.references,
-        created_at=d.created_at, updated_at=d.updated_at,
+        id=d.id,
+        record_id=d.record_id,
+        name=d.name,
+        description=d.description,
+        organization_id=d.organization_id,
+        category_id=d.category_id,
+        collection_id=d.collection_id,
+        coverage_start=d.coverage_start,
+        coverage_end=d.coverage_end,
+        frequency=d.frequency,
+        url=d.url,
+        status=d.status,
+        published_at=d.published_at,
+        file_name=d.file_name,
+        file_size=d.file_size,
+        file_type=d.file_type,
+        file_base64=d.file_base64,
+        columns=d.columns,
+        references=d.references,
+        created_at=d.created_at,
+        updated_at=d.updated_at,
     )
 
 
@@ -69,14 +80,18 @@ async def list_datasets(
     if q:
         stmt = stmt.where(or_(models.Dataset.name.ilike(f"%{q}%"), models.Dataset.description.ilike(f"%{q}%")))
     total = await session.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = (await session.scalars(
-        stmt.order_by(models.Dataset.created_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
-    )).all()
+    rows = (
+        await session.scalars(
+            stmt.order_by(models.Dataset.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        )
+    ).all()
     total = int(total or 0)
     return schemas.DatasetPageOut(
-        items=[_out(d) for d in rows], page=page, page_size=page_size,
-        total=total, total_pages=max(1, -(-total // page_size)) if total else 1,
+        items=[_out(d) for d in rows],
+        page=page,
+        page_size=page_size,
+        total=total,
+        total_pages=max(1, -(-total // page_size)) if total else 1,
     )
 
 
@@ -104,18 +119,27 @@ async def create_dataset(
         raise APIError(403, "forbidden", "Admin or editor role required")
     d = models.Dataset(
         id=payload.id or uuid.uuid4().hex,
-        record_id=payload.record_id, name=payload.name, description=payload.description,
-        organization_id=payload.organization_id, category_id=payload.category_id,
-        collection_id=payload.collection_id, coverage_start=payload.coverage_start,
-        coverage_end=payload.coverage_end, frequency=payload.frequency, url=payload.url,
-        file_name=payload.file_name, file_size=payload.file_size, file_type=payload.file_type,
+        record_id=payload.record_id,
+        name=payload.name,
+        description=payload.description,
+        organization_id=payload.organization_id,
+        category_id=payload.category_id,
+        collection_id=payload.collection_id,
+        coverage_start=payload.coverage_start,
+        coverage_end=payload.coverage_end,
+        frequency=payload.frequency,
+        url=payload.url,
+        file_name=payload.file_name,
+        file_size=payload.file_size,
+        file_type=payload.file_type,
         file_base64=payload.file_base64,
         status="draft",
     )
     session.add(d)
     await session.flush()
-    await log_event(session, actor=actor.label(), action="create", entity_type="dataset",
-                    entity_id=d.id, detail={"name": d.name})
+    await log_event(
+        session, actor=actor.label(), action="create", entity_type="dataset", entity_id=d.id, detail={"name": d.name}
+    )
     await session.commit()
     await session.refresh(d)
     return _out(d)
@@ -133,15 +157,29 @@ async def update_dataset(
     d = await session.get(models.Dataset, dataset_id)
     if not d:
         raise APIError(404, "not_found", f"dataset {dataset_id} not found")
-    for field in ("record_id", "name", "description", "organization_id", "category_id",
-                  "collection_id", "coverage_start", "coverage_end", "frequency", "url",
-                  "file_name", "file_size", "file_type", "file_base64"):
+    for field in (
+        "record_id",
+        "name",
+        "description",
+        "organization_id",
+        "category_id",
+        "collection_id",
+        "coverage_start",
+        "coverage_end",
+        "frequency",
+        "url",
+        "file_name",
+        "file_size",
+        "file_type",
+        "file_base64",
+    ):
         value = getattr(payload, field)
         if value is not None:
             setattr(d, field, value)
     d.updated_at = datetime.now(timezone.utc)
-    await log_event(session, actor=actor.label(), action="update", entity_type="dataset",
-                    entity_id=d.id, detail={"name": d.name})
+    await log_event(
+        session, actor=actor.label(), action="update", entity_type="dataset", entity_id=d.id, detail={"name": d.name}
+    )
     await session.commit()
     await session.refresh(d)
     return _out(d)
@@ -185,8 +223,9 @@ async def publish_dataset(
     d.status = "published"
     d.published_at = datetime.now(timezone.utc)
     d.updated_at = d.published_at
-    await log_event(session, actor=actor.label(), action="publish", entity_type="dataset",
-                    entity_id=d.id, detail={"name": d.name})
+    await log_event(
+        session, actor=actor.label(), action="publish", entity_type="dataset", entity_id=d.id, detail={"name": d.name}
+    )
     await session.commit()
     await session.refresh(d)
     return _out(d)
@@ -206,8 +245,9 @@ async def unpublish_dataset(
     d.status = "draft"
     d.published_at = None
     d.updated_at = datetime.now(timezone.utc)
-    await log_event(session, actor=actor.label(), action="unpublish", entity_type="dataset",
-                    entity_id=d.id, detail={"name": d.name})
+    await log_event(
+        session, actor=actor.label(), action="unpublish", entity_type="dataset", entity_id=d.id, detail={"name": d.name}
+    )
     await session.commit()
     await session.refresh(d)
     return _out(d)
@@ -224,7 +264,8 @@ async def delete_dataset(
     d = await session.get(models.Dataset, dataset_id)
     if not d:
         raise APIError(404, "not_found", f"dataset {dataset_id} not found")
-    await log_event(session, actor=actor.label(), action="delete", entity_type="dataset",
-                    entity_id=d.id, detail={"name": d.name})
+    await log_event(
+        session, actor=actor.label(), action="delete", entity_type="dataset", entity_id=d.id, detail={"name": d.name}
+    )
     await session.delete(d)
     await session.commit()

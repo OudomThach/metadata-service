@@ -2,7 +2,7 @@ const endpoints = [
   {
     method: "POST",
     path: "/api-meta/api/v1/records",
-    desc: "Ingest a record (open — no key needed). Client-supplied id is idempotent (409 on duplicate).",
+    desc: "Ingest a record (open — no key needed). Client-supplied id is idempotent. Duplicates: ?on_duplicate=error|skip|replace.",
     body: `{
   "id": "optional-client-id",
   "schema_version": "1.0",
@@ -14,6 +14,12 @@ const endpoints = [
   "business": { "date": "2026-08-01", "tags": ["import"], "domain": "logistics" },
   "data": { "order_no": "INV-2201", "amount": 1500 }
 }`,
+  },
+  {
+    method: "POST",
+    path: "/api-meta/api/v1/records/batch",
+    desc: "Ingest up to 500 records in one call. Per-item isolation: one bad item never rolls back the others. ?on_duplicate applies to every item.",
+    body: `{ "items": [ { ...record... }, { ...record... } ] }`,
   },
   {
     method: "POST",
@@ -36,11 +42,12 @@ const endpoints = [
   { method: "DELETE", path: "/api-meta/api/v1/records/{id}", desc: "Delete a record (audit entry is kept). Requires X-API-Key." },
   {
     method: "GET",
-    path: "/api-meta/api/v1/export?format=csv|json",
-    desc: "Export filtered records. CSV is flattened for spreadsheets, JSON is the full envelope. Requires X-API-Key.",
+    path: "/api-meta/api/v1/export?format=csv|json|jsonl",
+    desc: "Export filtered records. CSV is flattened for spreadsheets (UTF-8 BOM); JSONL streams for pipelines; JSON is the full envelope. Requires X-API-Key.",
   },
   { method: "GET", path: "/api-meta/api/v1/stats", desc: "Aggregates: totals by status / type / domain, per-day. Requires X-API-Key." },
   { method: "GET", path: "/api-meta/api/v1/meta", desc: "Distinct types and domains (for filter dropdowns). Requires X-API-Key." },
+  { method: "GET", path: "/api-meta/api/v1/webhooks", desc: "Admin: register event-driven hooks (create/update/delete). Public http(s) targets only." },
   { method: "GET", path: "/health", desc: "Liveness + DB check (open)." },
 ];
 
@@ -57,7 +64,7 @@ export default function DocsPage() {
       <h1 className="display mb-1">API Docs</h1>
       <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
         Interactive OpenAPI docs:{" "}
-        <a className="font-medium text-accent hover:underline" href="/api-meta/api-meta/api/docs" target="_blank" rel="noreferrer">
+        <a className="font-medium text-accent hover:underline" href="/api-meta/api/docs" target="_blank" rel="noreferrer">
           /api-meta/api/docs
         </a>{" "}
         · spec: <code className="font-mono">/api-meta/api/openapi.json</code>
@@ -71,9 +78,9 @@ export default function DocsPage() {
         <pre className="mt-2 rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-xs text-accent">{`X-API-Key: <your-team-key>`}</pre>
         <p className="mt-2 text-xs text-slate-500">
           Sign in first with <code className="font-mono">POST /api-meta/api/v1/auth/login</code> (password = your key). The portal
-          stores the returned token. <code className="font-mono">POST /api-meta/api/v1/records</code> is open by design so pipelines
-          record without shipping keys in public code. Editing endpoints honor{" "}
-          <code className="font-mono">X-Edited-By: user:&lt;name&gt;</code> for audit attribution.
+          stores the returned token. <code className="font-mono">POST /api-meta/api/v1/records</code> and{" "}
+          <code className="font-mono">/records/batch</code> are open by design so pipelines record without shipping keys in
+          public code. Editing endpoints honor <code className="font-mono">X-Edited-By: user:&lt;name&gt;</code> for audit attribution.
         </p>
       </div>
 

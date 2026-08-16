@@ -20,8 +20,12 @@ router = APIRouter(prefix="/api/v1/categories", tags=["categories"])
 
 def _out(c: models.Category) -> schemas.CategoryOut:
     return schemas.CategoryOut(
-        id=c.id, parent_id=c.parent_id, name=c.name, description=c.description,
-        sort=c.sort, created_at=c.created_at,
+        id=c.id,
+        parent_id=c.parent_id,
+        name=c.name,
+        description=c.description,
+        sort=c.sort,
+        created_at=c.created_at,
     )
 
 
@@ -41,12 +45,19 @@ async def create_category(
         raise APIError(403, "forbidden", "Admin or editor role required")
     if payload.parent_id is not None and not await session.get(models.Category, payload.parent_id):
         raise APIError(422, "bad_request", f"parent category {payload.parent_id} not found")
-    cat = models.Category(parent_id=payload.parent_id, name=payload.name,
-                          description=payload.description, sort=payload.sort)
+    cat = models.Category(
+        parent_id=payload.parent_id, name=payload.name, description=payload.description, sort=payload.sort
+    )
     session.add(cat)
     await session.flush()
-    await log_event(session, actor=actor.label(), action="create", entity_type="category",
-                    entity_id=str(cat.id), detail={"name": cat.name, "parent_id": cat.parent_id})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="create",
+        entity_type="category",
+        entity_id=str(cat.id),
+        detail={"name": cat.name, "parent_id": cat.parent_id},
+    )
     await session.commit()
     await session.refresh(cat)
     return _out(cat)
@@ -64,15 +75,24 @@ async def update_category(
     cat = await session.get(models.Category, category_id)
     if not cat:
         raise APIError(404, "not_found", f"category {category_id} not found")
-    if payload.parent_id is not None and payload.parent_id != category_id:
-        if not await session.get(models.Category, payload.parent_id):
-            raise APIError(422, "bad_request", f"parent category {payload.parent_id} not found")
+    if (
+        payload.parent_id is not None
+        and payload.parent_id != category_id
+        and not await session.get(models.Category, payload.parent_id)
+    ):
+        raise APIError(422, "bad_request", f"parent category {payload.parent_id} not found")
     cat.parent_id = payload.parent_id
     cat.name = payload.name
     cat.description = payload.description
     cat.sort = payload.sort
-    await log_event(session, actor=actor.label(), action="update", entity_type="category",
-                    entity_id=str(category_id), detail={"name": cat.name})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="update",
+        entity_type="category",
+        entity_id=str(category_id),
+        detail={"name": cat.name},
+    )
     await session.commit()
     await session.refresh(cat)
     return _out(cat)
@@ -89,7 +109,13 @@ async def delete_category(
     cat = await session.get(models.Category, category_id)
     if not cat:
         raise APIError(404, "not_found", f"category {category_id} not found")
-    await log_event(session, actor=actor.label(), action="delete", entity_type="category",
-                    entity_id=str(category_id), detail={"name": cat.name})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="delete",
+        entity_type="category",
+        entity_id=str(category_id),
+        detail={"name": cat.name},
+    )
     await session.delete(cat)
     await session.commit()

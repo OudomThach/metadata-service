@@ -27,7 +27,8 @@ def _date(v: str | None) -> dt.date | None:
 
 
 async def find_dataset_for_record(session: AsyncSession, record_id: str) -> models.Dataset | None:
-    return await session.scalar(select(models.Dataset).where(models.Dataset.record_id == record_id))
+    row = await session.execute(select(models.Dataset).where(models.Dataset.record_id == record_id))
+    return row.scalar_one_or_none()
 
 
 async def promote_record_to_dataset(

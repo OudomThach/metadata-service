@@ -156,7 +156,7 @@ function RecentActivity() {
             <span className="font-mono text-xs text-slate-600 dark:text-slate-300">{e.actor}</span>
             <span className="text-xs text-slate-400">
               {e.entity_type}{e.entity_id ? ` · ${e.entity_id.slice(0, 10)}` : ""}
-              {(e.detail as { name?: string } | null)?.name ? ` · ${(e.detail as { name?: string }).name}` : ""}
+              {e.detail?.name ? ` · ${e.detail.name}` : ""}
             </span>
             <span className="ml-auto text-xs text-slate-400">{e.at.slice(0, 19).replace("T", " ")}</span>
           </div>

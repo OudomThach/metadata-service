@@ -1,4 +1,3 @@
-import pytest
 from conftest import sample_record
 
 
@@ -8,7 +7,7 @@ async def test_create_record_returns_201_with_envelope(auth_client):
     body = r.json()
     assert body["id"] == "rec-0001"
     assert body["status"] == "raw"
-    assert body["created_by"] == "system:api"
+    assert body["created_by"] == "user:admin"
     assert body["audit"]["status"] == "raw"
     assert body["record"]["validation"]["status"] == "accepted"
     assert body["data"]["order_no"] == "INV-2201"
@@ -42,8 +41,11 @@ async def test_create_missing_type_and_data_rejected(auth_client):
 
 async def test_list_records_paginated_and_filtered(auth_client):
     for i in range(5):
-        p = sample_record(id=f"rec-{i:04d}", type="invoice" if i % 2 == 0 else "label",
-                          business={"date": f"2026-08-{i+1:02d}", "tags": ["x"], "domain": "logistics"})
+        p = sample_record(
+            id=f"rec-{i:04d}",
+            type="invoice" if i % 2 == 0 else "label",
+            business={"date": f"2026-08-{i + 1:02d}", "tags": ["x"], "domain": "logistics"},
+        )
         assert (await auth_client.post("/api/v1/records", json=p)).status_code == 201
 
     r = await auth_client.get("/api/v1/records", params={"type": "invoice", "page_size": 2})
@@ -71,8 +73,11 @@ async def test_get_record_not_found(auth_client):
 
 async def test_patch_record_updates_audit(auth_client):
     await auth_client.post("/api/v1/records", json=sample_record())
-    r = await auth_client.patch("/api/v1/records/rec-0001", json={"data": {"order_no": "INV-9999", "amount": 999}},
-                           headers={"X-Edited-By": "user:dara"})
+    r = await auth_client.patch(
+        "/api/v1/records/rec-0001",
+        json={"data": {"order_no": "INV-9999", "amount": 999}},
+        headers={"X-Edited-By": "user:dara"},
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["data"]["order_no"] == "INV-9999"
@@ -97,7 +102,8 @@ async def test_delete_record(auth_client):
 
 
 async def test_audit_log_written_on_create_and_update(auth_client):
-    from sqlalchemy import func, select
+    from sqlalchemy import select
+
     from app.db import SessionLocal
     from app.models import AuditEvent
 
@@ -107,3 +113,22 @@ async def test_audit_log_written_on_create_and_update(auth_client):
     async with SessionLocal() as s:
         actions = [a.action for a in (await s.execute(select(AuditEvent).order_by(AuditEvent.id))).scalars()]
     assert actions == ["create", "update"]
+
+
+async def test_record_history_endpoint(auth_client):
+    await auth_client.post("/api/v1/records", json=sample_record())
+    await auth_client.patch("/api/v1/records/rec-0001", json={"data": {"order_no": "X"}})
+    r = await auth_client.get("/api/v1/records/rec-0001/history")
+    assert r.status_code == 200
+    events = r.json()
+    assert len(events) == 2
+    assert events[0]["action"] == "create"
+    assert events[0]["actor"] == "user:admin"
+    assert events[1]["action"] == "update"
+    assert events[1]["actor"] == "user:admin"
+    assert "snapshot" in events[0]
+
+
+async def test_record_history_not_found(auth_client):
+    r = await auth_client.get("/api/v1/records/nope/history")
+    assert r.status_code == 404

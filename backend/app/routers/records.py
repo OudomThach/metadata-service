@@ -1,16 +1,18 @@
 import asyncio
 import datetime as dt
 import uuid
+from typing import Any
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import crud, models, schemas
+from ..constants import RECORD_STATUSES
 from ..db import get_session
 from ..errors import APIError
 from ..promote import find_dataset_for_record, promote_record_to_dataset
-from ..security import Actor, require_auth
+from ..security import Actor, require_auth, user_by_token
 from .webhooks import fire_webhooks
 
 # POST /records is deliberately OPEN so extraction pipelines can record from
@@ -19,17 +21,15 @@ from .webhooks import fire_webhooks
 # valid X-API-Key (see auth).
 router = APIRouter(prefix="/api/v1/records", tags=["records"])
 
-STATUSES = {"raw", "edited", "verified"}
 
-
-def _build_envelope(payload: schemas.RecordCreate, actor: str, now: dt.datetime) -> dict:
+def _build_envelope(payload: schemas.RecordCreate, actor: str, now: dt.datetime) -> dict[str, Any]:
     audit_in = (payload.audit or schemas.AuditIn()).model_dump(exclude_none=True)
     created_at = audit_in.pop("created_at", now)
     created_by = audit_in.pop("created_by", actor)
     status = audit_in.pop("status", "raw")
-    if status not in STATUSES:
-        raise APIError(422, "invalid_status", f"status must be one of {sorted(STATUSES)}")
-    envelope = payload.model_dump(mode="json", exclude_none=True, exclude={"id"})
+    if status not in RECORD_STATUSES:
+        raise APIError(422, "invalid_status", f"status must be one of {sorted(RECORD_STATUSES)}")
+    envelope: dict[str, Any] = payload.model_dump(mode="json", exclude_none=True, exclude={"id"})
     envelope["audit"] = {
         "created_at": created_at.isoformat(),
         "created_by": created_by,
@@ -62,7 +62,7 @@ def _parse_date(v: object) -> dt.date | None:
     return None
 
 
-def _apply_envelope(rec: models.Record, env: dict) -> None:
+def _apply_envelope(rec: models.Record, env: dict[str, Any]) -> None:
     rec.envelope = env
     src = env.get("source") or {}
     aud = env.get("audit") or {}
@@ -97,24 +97,50 @@ def _apply_envelope(rec: models.Record, env: dict) -> None:
     rec.data = env.get("data", {})
 
 
-@router.post("", status_code=201, response_model=schemas.RecordOut)
-async def create_record(
-    payload: schemas.RecordCreate,
-    session: AsyncSession = Depends(get_session),
-    x_api_key: str | None = Header(default=None),
-    x_session_token: str | None = Header(default=None),
-) -> models.Record:
-    actor = "system:api"
+async def _resolve_actor(session: AsyncSession, x_api_key: str | None, x_session_token: str | None) -> str:
     if x_api_key:
-        actor = f"key:{x_api_key}"
-    elif x_session_token:
-        from ..security import user_by_token
+        return f"key:{x_api_key}"
+    if x_session_token:
         user = await user_by_token(session, x_session_token)
-        actor = f"user:{user.username}" if user else "system:api"
+        if user:
+            return f"user:{user.username}"
+    return "system:api"
+
+
+async def _create_or_replace(
+    session: AsyncSession,
+    payload: schemas.RecordCreate,
+    actor: str,
+    on_duplicate: str,
+) -> tuple[models.Record, str]:
+    """Create a record, or handle a duplicate per on_duplicate mode.
+
+    Returns (record, outcome) where outcome is one of created|updated|skipped.
+    Caller commits and fires webhooks.
+    """
     now = dt.datetime.now(dt.timezone.utc)
     record_id = payload.id or str(uuid.uuid4())
-    exists = (await session.execute(select(func.count()).select_from(models.Record).where(models.Record.id == record_id))).scalar()
+    exists = (
+        await session.execute(select(func.count()).select_from(models.Record).where(models.Record.id == record_id))
+    ).scalar()
     if exists:
+        if on_duplicate == "skip":
+            rec = await session.get(models.Record, record_id)
+            assert rec is not None
+            return rec, "skipped"
+        if on_duplicate == "replace":
+            rec = await session.get(models.Record, record_id)
+            assert rec is not None
+            envelope = _build_envelope(payload, actor, now)
+            aud = dict(envelope.get("audit") or {})
+            aud["edited_at"] = now.isoformat()
+            aud["edited_by"] = actor
+            aud["edit_count"] = int(rec.edit_count or 0) + 1
+            envelope["audit"] = aud
+            _apply_envelope(rec, envelope)
+            rec.data = payload.data
+            await crud.log_audit(session, record_id, "update", actor, envelope)
+            return rec, "updated"
         raise APIError(409, "duplicate_id", f"record {record_id} already exists")
 
     envelope = _build_envelope(payload, actor, now)
@@ -123,10 +149,63 @@ async def create_record(
     session.add(rec)
     await session.flush()  # assign rec.id before the FK-referencing audit row
     await crud.log_audit(session, record_id, "create", actor, envelope)
+    return rec, "created"
+
+
+@router.post("", status_code=201, response_model=schemas.RecordOut)
+async def create_record(
+    payload: schemas.RecordCreate,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    x_api_key: str | None = Header(default=None),
+    x_session_token: str | None = Header(default=None),
+    on_duplicate: str = Query(default="error", pattern=r"^(error|skip|replace)$"),
+) -> schemas.RecordOut:
+    actor = await _resolve_actor(session, x_api_key, x_session_token)
+    rec, outcome = await _create_or_replace(session, payload, actor, on_duplicate)
     await session.commit()
-    asyncio.create_task(fire_webhooks(record_id, "create", envelope))
+    if outcome == "created":
+        asyncio.create_task(fire_webhooks(rec.id, outcome, rec.envelope or {}))
+    else:
+        response.status_code = 200
     await session.refresh(rec)
     return crud.to_out(rec)
+
+
+@router.post("/batch", response_model=schemas.RecordBatchOut)
+async def create_records_batch(
+    payload: schemas.RecordBatchIn,
+    session: AsyncSession = Depends(get_session),
+    x_api_key: str | None = Header(default=None),
+    x_session_token: str | None = Header(default=None),
+    on_duplicate: str = Query(default="error", pattern=r"^(error|skip|replace)$"),
+) -> schemas.RecordBatchOut:
+    """Ingest up to 500 records in one call. Each item is processed in its own
+    transaction slice — a failure in one item never rolls back the others."""
+    actor = await _resolve_actor(session, x_api_key, x_session_token)
+    counts = {"created": 0, "updated": 0, "skipped": 0, "failed": 0}
+    results: list[schemas.BatchItemResult] = []
+    for item in payload.items:
+        try:
+            rec, outcome = await _create_or_replace(session, item, actor, on_duplicate)
+            await session.commit()
+            if outcome in ("created", "updated"):
+                asyncio.create_task(fire_webhooks(rec.id, outcome, rec.envelope or {}))
+            counts[outcome] += 1
+            results.append(schemas.BatchItemResult(id=rec.id, ok=True))
+        except APIError as exc:
+            await session.rollback()
+            counts["failed"] += 1
+            results.append(
+                schemas.BatchItemResult(id=item.id, ok=False, error={"code": exc.code, "message": str(exc.detail)})
+            )
+        except Exception as exc:  # noqa: BLE001 — item-level isolation
+            await session.rollback()
+            counts["failed"] += 1
+            results.append(
+                schemas.BatchItemResult(id=item.id, ok=False, error={"code": "internal_error", "message": str(exc)})
+            )
+    return schemas.RecordBatchOut(**counts, results=results)
 
 
 @router.get("", response_model=schemas.PageOut)
@@ -144,7 +223,9 @@ async def list_records(
     q: str | None = Query(default=None, max_length=256),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    sort: str = Query(default="created_at:desc", pattern=r"^(created_at|business_date|edited_at|type|status):(asc|desc)$"),
+    sort: str = Query(
+        default="created_at:desc", pattern=r"^(created_at|business_date|edited_at|type|status):(asc|desc)$"
+    ),
 ) -> schemas.PageOut:
     base = crud.apply_filters(
         select(models.Record),
@@ -172,14 +253,16 @@ async def list_records(
 
 
 @router.get("/{record_id}", response_model=schemas.RecordOut)
-async def get_record(record_id: str, session: AsyncSession = Depends(get_session), _actor: Actor = Depends(require_auth)) -> models.Record:
+async def get_record(
+    record_id: str, session: AsyncSession = Depends(get_session), _actor: Actor = Depends(require_auth)
+) -> schemas.RecordOut:
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
     return crud.to_out(rec)
 
 
-@router.delete("", response_model=dict)
+@router.delete("", response_model=dict[str, int])
 async def bulk_delete_records(
     session: AsyncSession = Depends(get_session),
     _actor: Actor = Depends(require_auth),
@@ -188,15 +271,20 @@ async def bulk_delete_records(
     status: str | None = Query(default=None),
     tag: str | None = Query(default=None),
     created_before: dt.datetime | None = Query(default=None),
-) -> dict:
+) -> dict[str, Any]:
     if _actor.role != "admin":
         raise APIError(403, "forbidden", "Admin role required")
     stmt = crud.apply_filters(
         select(models.Record),
         dialect=session.get_bind().dialect.name,
-        type=type, domain=domain, status=status, tag=tag,
-        business_from=None, business_to=None,
-        created_from=None, created_to=created_before,
+        type=type,
+        domain=domain,
+        status=status,
+        tag=tag,
+        business_from=None,
+        business_to=None,
+        created_from=None,
+        created_to=created_before,
         q=None,
     )
     rows = (await session.execute(stmt)).scalars().all()
@@ -218,12 +306,16 @@ async def record_history(
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
     rows = (
-        await session.execute(
-            select(models.AuditEvent)
-            .where(models.AuditEvent.record_id == record_id)
-            .order_by(models.AuditEvent.at.asc())
+        (
+            await session.execute(
+                select(models.AuditEvent)
+                .where(models.AuditEvent.record_id == record_id)
+                .order_by(models.AuditEvent.at.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         schemas.AuditEventOut(
             id=e.id,
@@ -243,7 +335,7 @@ async def patch_record(
     session: AsyncSession = Depends(get_session),
     x_edited_by: str | None = Header(default=None),
     _actor: Actor = Depends(require_auth),
-) -> models.Record:
+) -> schemas.RecordOut:
     if _actor.role not in ("admin", "editor"):
         raise APIError(403, "forbidden", "Admin or editor role required to edit records")
     rec = await session.get(models.Record, record_id)
@@ -263,8 +355,8 @@ async def patch_record(
         env["business"] = biz
         changed = True
     if payload.status is not None:
-        if payload.status not in STATUSES:
-            raise APIError(422, "invalid_status", f"status must be one of {sorted(STATUSES)}")
+        if payload.status not in RECORD_STATUSES:
+            raise APIError(422, "invalid_status", f"status must be one of {sorted(RECORD_STATUSES)}")
         env.setdefault("audit", {})["status"] = payload.status
         if payload.status == "verified":
             rec.status_verified_at = now

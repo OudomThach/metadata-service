@@ -1,5 +1,6 @@
 from sqlalchemy import select
 
+
 async def _seed_admin(monkeypatch):
     from app import config
 
@@ -34,7 +35,7 @@ async def test_login_me_and_reads(client, monkeypatch):
 
     r = await client.get("/api/v1/auth/me", headers={"X-Session-Token": token})
     assert r.status_code == 200
-    assert r.json() == {"id": 0, "username": "admin", "role": "admin"}
+    assert r.json() == {"id": 0, "username": "admin", "role": "admin", "organization_id": None}
 
     # reads without credentials are blocked
     assert (await client.get("/api/v1/records")).status_code == 401
@@ -87,34 +88,125 @@ async def test_post_records_stays_open(client, monkeypatch):
     assert r.status_code == 201
 
 
+async def _create_user(client, admin_token, username, password, role):
+    r = await client.post(
+        "/api/v1/auth/users",
+        json={"username": username, "password": password, "role": role},
+        headers={"X-Session-Token": admin_token},
+    )
+    assert r.status_code == 201
+    return r
+
+
 async def test_admin_can_create_users(client, monkeypatch):
     await _seed_admin(monkeypatch)
     token = (await _login(client))["token"]
     headers = {"X-Session-Token": token}
 
-    r = await client.post("/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123", "role": "viewer"}, headers=headers)
+    r = await client.post(
+        "/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123", "role": "editor"}, headers=headers
+    )
     assert r.status_code == 201
     body = r.json()
     assert body["username"] == "dara"
-    assert body["role"] == "viewer"
+    assert body["role"] == "editor"
 
     r = await client.post("/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123"}, headers=headers)
     assert r.status_code == 409
 
-    # the new user can log in and read
     body = await _login(client, "dara", "dara-pass-123")
     assert body["user"]["username"] == "dara"
-    assert body["user"]["role"] == "viewer"
+    assert body["user"]["role"] == "editor"
     assert (await client.get("/api/v1/records", headers={"X-Session-Token": body["token"]})).status_code == 200
+
+
+async def test_editor_can_patch_but_not_delete(client, monkeypatch):
+    await _seed_admin(monkeypatch)
+    admin_token = (await _login(client))["token"]
+    await _create_user(client, admin_token, "dara", "dara-pass-123", "editor")
+    editor_token = (await _login(client, "dara", "dara-pass-123"))["token"]
+    headers = {"X-Session-Token": editor_token}
+
+    r = await client.post("/api/v1/records", json={"id": "editor-test", "type": "invoice", "data": {"n": 1}})
+    assert r.status_code == 201
+
+    r = await client.patch("/api/v1/records/editor-test", json={"data": {"n": 2}}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["edited_by"] == "user:dara"
+
+    r = await client.delete("/api/v1/records/editor-test", headers=headers)
+    assert r.status_code == 403  # editor can't delete
+
+    # cleanup as admin
+    r = await client.delete("/api/v1/records/editor-test", headers={"X-Session-Token": admin_token})
+    assert r.status_code == 204
+
+
+async def test_viewer_cannot_patch_anything(client, monkeypatch):
+    await _seed_admin(monkeypatch)
+    admin_token = (await _login(client))["token"]
+    await _create_user(client, admin_token, "dara", "dara-pass-123", "viewer")
+    viewer_token = (await _login(client, "dara", "dara-pass-123"))["token"]
+    headers = {"X-Session-Token": viewer_token}
+
+    r = await client.post("/api/v1/records", json={"id": "viewer-test", "type": "invoice", "data": {"n": 1}})
+    assert r.status_code == 201
+
+    r = await client.patch("/api/v1/records/viewer-test", json={"data": {"n": 2}}, headers=headers)
+    assert r.status_code == 403  # viewer can't edit
+
+    r = await client.delete("/api/v1/records/viewer-test", headers={"X-Session-Token": admin_token})
+    assert r.status_code == 204
+
+
+async def test_editor_cannot_manage_users(client, monkeypatch):
+    await _seed_admin(monkeypatch)
+    admin_token = (await _login(client))["token"]
+    await _create_user(client, admin_token, "dara", "dara-pass-123", "editor")
+    editor_token = (await _login(client, "dara", "dara-pass-123"))["token"]
+    headers = {"X-Session-Token": editor_token}
+
+    r = await client.post("/api/v1/auth/users", json={"username": "bob", "password": "bob-pass-123"}, headers=headers)
+    assert r.status_code == 403
+
+
+async def test_admin_can_promote_to_editor_and_demote_to_viewer(client, monkeypatch):
+    await _seed_admin(monkeypatch)
+    admin_token = (await _login(client))["token"]
+    await _create_user(client, admin_token, "dara", "dara-pass-123", "viewer")
+
+    from app.db import SessionLocal
+    from app.models import User
+
+    async with SessionLocal() as s:
+        rows = await s.execute(select(User).where(User.username == "dara"))
+        dara_id = rows.scalar_one().id
+
+    headers = {"X-Session-Token": admin_token}
+    r = await client.patch(f"/api/v1/auth/users/{dara_id}", json={"role": "editor"}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["role"] == "editor"
+
+    r = await client.patch(f"/api/v1/auth/users/{dara_id}", json={"role": "viewer"}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["role"] == "viewer"
 
 
 async def test_non_admin_cannot_create_users(client, monkeypatch):
     await _seed_admin(monkeypatch)
     admin_token = (await _login(client))["token"]
-    await client.post("/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123", "role": "viewer"}, headers={"X-Session-Token": admin_token})
+    await client.post(
+        "/api/v1/auth/users",
+        json={"username": "dara", "password": "dara-pass-123", "role": "viewer"},
+        headers={"X-Session-Token": admin_token},
+    )
 
     viewer_token = (await _login(client, "dara", "dara-pass-123"))["token"]
-    r = await client.post("/api/v1/auth/users", json={"username": "bob", "password": "bob-pass-123"}, headers={"X-Session-Token": viewer_token})
+    r = await client.post(
+        "/api/v1/auth/users",
+        json={"username": "bob", "password": "bob-pass-123"},
+        headers={"X-Session-Token": viewer_token},
+    )
     assert r.status_code == 403
 
 
@@ -136,12 +228,11 @@ async def test_admin_can_promote_and_demote(client, monkeypatch):
     token = (await _login(client))["token"]
     headers = {"X-Session-Token": token}
     await client.post("/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123"}, headers=headers)
-    uc = r = await client.get("/api/v1/auth/users", headers=headers)
-    dara = [u for u in r.json() if u["username"] == "dara"][0]
 
     # get the user ID from the response... we don't have IDs. Let me add user IDs to list_users.
-    from app.models import User
     from app.db import SessionLocal
+    from app.models import User
+
     async with SessionLocal() as s:
         rows = await s.execute(select(User).where(User.username == "dara"))
         dara_id = rows.scalar_one().id
@@ -161,8 +252,9 @@ async def test_admin_can_delete_user(client, monkeypatch):
     headers = {"X-Session-Token": token}
     await client.post("/api/v1/auth/users", json={"username": "delme", "password": "delme-pass-123"}, headers=headers)
 
-    from app.models import User
     from app.db import SessionLocal
+    from app.models import User
+
     async with SessionLocal() as s:
         rows = await s.execute(select(User).where(User.username == "delme"))
         uid = rows.scalar_one().id
@@ -176,8 +268,9 @@ async def test_admin_cannot_delete_self(client, monkeypatch):
     token = (await _login(client))["token"]
     headers = {"X-Session-Token": token}
 
-    from app.models import User
     from app.db import SessionLocal
+    from app.models import User
+
     async with SessionLocal() as s:
         rows = await s.execute(select(User).where(User.username == "admin"))
         admin_id = rows.scalar_one().id
@@ -189,7 +282,11 @@ async def test_admin_cannot_delete_self(client, monkeypatch):
 async def test_viewer_cannot_delete_record(client, monkeypatch):
     await _seed_admin(monkeypatch)
     admin_token = (await _login(client))["token"]
-    await client.post("/api/v1/auth/users", json={"username": "dara", "password": "dara-pass-123", "role": "viewer"}, headers={"X-Session-Token": admin_token})
+    await client.post(
+        "/api/v1/auth/users",
+        json={"username": "dara", "password": "dara-pass-123", "role": "viewer"},
+        headers={"X-Session-Token": admin_token},
+    )
 
     r = await client.post("/api/v1/records", json={"type": "invoice", "data": {"n": 1}})
     record_id = r.json()["id"]

@@ -128,7 +128,15 @@ async def require_auth_optional(
 # --------------------------------------------------------------------------- #
 # Bootstrap: ensure the admin user exists on startup
 # --------------------------------------------------------------------------- #
+_INSECURE_PASSWORDS = {"", "admin", "change-me", "changeme", "password"}
+
+
 async def seed_admin() -> None:
+    if settings.admin_password.strip().lower() in _INSECURE_PASSWORDS:
+        raise RuntimeError(
+            "METADATA_ADMIN_PASSWORD is unset or uses a known default. "
+            "Set a real admin password before starting the service."
+        )
     async with SessionLocal() as session:
         exists = await session.execute(select(User).where(User.username == settings.admin_username))
         if exists.scalar_one_or_none():

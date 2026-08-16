@@ -20,8 +20,11 @@ router = APIRouter(prefix="/api/v1/collections", tags=["collections"])
 
 def _out(c: models.Collection) -> schemas.CollectionOut:
     return schemas.CollectionOut(
-        id=c.id, name=c.name, description=c.description,
-        organization_id=c.organization_id, created_at=c.created_at,
+        id=c.id,
+        name=c.name,
+        description=c.description,
+        organization_id=c.organization_id,
+        created_at=c.created_at,
     )
 
 
@@ -44,12 +47,17 @@ async def create_collection(
     existing = await session.scalar(select(models.Collection).where(models.Collection.name == payload.name))
     if existing:
         raise APIError(409, "duplicate", f"collection '{payload.name}' already exists")
-    col = models.Collection(name=payload.name, description=payload.description,
-                            organization_id=payload.organization_id)
+    col = models.Collection(name=payload.name, description=payload.description, organization_id=payload.organization_id)
     session.add(col)
     await session.flush()
-    await log_event(session, actor=actor.label(), action="create", entity_type="collection",
-                    entity_id=str(col.id), detail={"name": col.name})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="create",
+        entity_type="collection",
+        entity_id=str(col.id),
+        detail={"name": col.name},
+    )
     await session.commit()
     await session.refresh(col)
     return _out(col)
@@ -70,8 +78,14 @@ async def update_collection(
     col.name = payload.name
     col.description = payload.description
     col.organization_id = payload.organization_id
-    await log_event(session, actor=actor.label(), action="update", entity_type="collection",
-                    entity_id=str(collection_id), detail={"name": col.name})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="update",
+        entity_type="collection",
+        entity_id=str(collection_id),
+        detail={"name": col.name},
+    )
     await session.commit()
     await session.refresh(col)
     return _out(col)
@@ -88,7 +102,13 @@ async def delete_collection(
     col = await session.get(models.Collection, collection_id)
     if not col:
         raise APIError(404, "not_found", f"collection {collection_id} not found")
-    await log_event(session, actor=actor.label(), action="delete", entity_type="collection",
-                    entity_id=str(collection_id), detail={"name": col.name})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="delete",
+        entity_type="collection",
+        entity_id=str(collection_id),
+        detail={"name": col.name},
+    )
     await session.delete(col)
     await session.commit()

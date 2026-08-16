@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import models, schemas
+from .. import crud, models, schemas
 from ..audit_log import log_event
 from ..db import get_session
 from ..errors import APIError
@@ -25,7 +27,7 @@ router = APIRouter(prefix="/api/v1", tags=["admin"])
 class CaptureOcrIn(BaseModel):
     document_name: str
     full_text: str = ""
-    result: dict | None = None  # raw engine output (stored as data.json)
+    result: dict[str, Any] | None = None  # raw engine output (stored as data.json)
     num_pages: int = 1
 
 
@@ -42,6 +44,7 @@ def _normalize_table(text: str) -> str:
 
 def _build_csv(text: str) -> str:
     """Pipe-table text -> CSV with BOM (mirrors the SPA's buildCsv)."""
+
     def esc(s: str) -> str:
         return f'"{str(s or "").replace(chr(34), chr(34) * 2)}"'
 
@@ -66,7 +69,7 @@ async def capture_ocr(
     payload: CaptureOcrIn,
     session: AsyncSession = Depends(get_session),
     actor: Actor = Depends(require_auth),
-):
+) -> schemas.RecordOut:
     """Save an OCR result with all artifacts generated server-side.
 
     Requires X-API-Key or a session token (the adapters call this with the
@@ -77,46 +80,46 @@ async def capture_ocr(
     text = (payload.full_text or "").strip()
     rid = uuid.uuid4().hex
     markdown = _normalize_table(text)
+    csv = _build_csv(markdown)
+    result = payload.result or {}
+    data = {
+        "document_name": payload.document_name,
+        "full_text": text,
+        "markdown": markdown,
+        "csv": csv,
+        "json": result,
+        "num_pages": int(payload.num_pages or 1),
+    }
+    now = dt.datetime.now(dt.timezone.utc)
     record = models.Record(
         id=rid,
         type="document",
         status="raw",
         source_filename=payload.document_name,
         source_system="api",
-        source_model=(payload.result or {}).get("model") or (payload.result or {}).get("decoder") or "ocr",
-        data={
-            "document_name": payload.document_name,
-            "full_text": text,
-            "markdown": markdown,
-            "csv": _build_csv(markdown),
-            "json": payload.result or {},
-            "num_pages": int(payload.num_pages or 1),
-        },
+        source_model=result.get("model") or result.get("decoder") or "ocr",
+        data=data,
         envelope={
-            "data": {
-                "document_name": payload.document_name,
-                "full_text": text,
-                "markdown": markdown,
-                "csv": _build_csv(markdown),
-                "json": payload.result or {},
-                "num_pages": int(payload.num_pages or 1),
-            },
-            "audit": {"created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
-                      "created_by": actor.label(), "status": "raw", "edit_count": 0},
+            "data": data,
+            "audit": {"created_at": now.isoformat(), "created_by": actor.label(), "status": "raw", "edit_count": 0},
             "source": {"filename": payload.document_name, "model": "ocr", "source_system": "api"},
         },
         created_by=actor.label(),
     )
     session.add(record)
     await session.flush()
-    session.add(models.AuditEventGlobal(
-        actor=actor.label(), action="create", entity_type="record",
-        entity_id=rid, detail={"document_name": payload.document_name, "via": "capture-ocr"},
-    ))
+    session.add(
+        models.AuditEventGlobal(
+            actor=actor.label(),
+            action="create",
+            entity_type="record",
+            entity_id=rid,
+            detail={"document_name": payload.document_name, "via": "capture-ocr"},
+        )
+    )
     await session.commit()
     await session.refresh(record)
-    from .. import crud as _crud
-    return _crud.to_out(record)
+    return crud.to_out(record)
 
 
 # --------------------------------------------------------------------------- #
@@ -144,8 +147,13 @@ async def list_audit(
     rows = (await session.scalars(stmt.offset(offset).limit(limit))).all()
     return [
         schemas.AuditEventGlobalOut(
-            id=e.id, actor=e.actor, action=e.action, entity_type=e.entity_type,
-            entity_id=e.entity_id, detail=e.detail, at=e.at,
+            id=e.id,
+            actor=e.actor,
+            action=e.action,
+            entity_type=e.entity_type,
+            entity_id=e.entity_id,
+            detail=e.detail,
+            at=e.at,
         )
         for e in rows
     ]
@@ -155,7 +163,12 @@ async def list_audit(
 # Settings
 # --------------------------------------------------------------------------- #
 @router.get("/settings", response_model=list[schemas.SettingOut])
-async def list_settings(session: AsyncSession = Depends(get_session)) -> list[schemas.SettingOut]:
+async def list_settings(
+    session: AsyncSession = Depends(get_session),
+    actor: Actor = Depends(require_auth),
+) -> list[schemas.SettingOut]:
+    if actor.role != "admin":
+        raise APIError(403, "forbidden", "Admin role required")
     rows = (await session.scalars(select(models.Setting).order_by(models.Setting.key))).all()
     return [schemas.SettingOut(key=s.key, value=s.value, updated_at=s.updated_at) for s in rows]
 
@@ -175,8 +188,14 @@ async def upsert_setting(
         session.add(s)
     else:
         s.value = payload.value
-    await log_event(session, actor=actor.label(), action="update", entity_type="setting",
-                    entity_id=key, detail={"value": payload.value})
+    await log_event(
+        session,
+        actor=actor.label(),
+        action="update",
+        entity_type="setting",
+        entity_id=key,
+        detail={"value": payload.value},
+    )
     await session.commit()
     await session.refresh(s)
     return schemas.SettingOut(key=s.key, value=s.value, updated_at=s.updated_at)

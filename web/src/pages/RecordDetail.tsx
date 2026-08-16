@@ -1,10 +1,10 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type AuditEventOut } from "../api/client";
 import StatusBadge from "../components/StatusBadge";
 import { MarkdownView } from "../components/MarkdownView";
-import { DatasetOverview, DatasetColumns, DatasetReferences, DatasetData } from "../components/DatasetEditor";
+import { DatasetOverview, DatasetColumns, DatasetReferences, DatasetData, deriveRecordText } from "../components/DatasetEditor";
 import { getUser } from "../api/client";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -263,7 +263,7 @@ export default function RecordDetail() {
           {/* OCR text — readable, editable like the review panel */}
           <Section title="OCR text">
             {(() => {
-              const hasText = Boolean(String(rec.data?.full_text ?? rec.data?.markdown ?? "").trim());
+              const hasText = Boolean(deriveRecordText(rec.data).trim());
               if (!hasText) {
                 return (
                   <div className="grid gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:bg-amber-500/10">
@@ -276,7 +276,7 @@ export default function RecordDetail() {
               }
               return null;
             })()}
-            {Boolean(String(rec.data?.full_text ?? rec.data?.markdown ?? "").trim()) && (
+            {Boolean(deriveRecordText(rec.data).trim()) && (
             <>
             <div className="mb-2 flex items-center gap-2">
               <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
@@ -331,7 +331,7 @@ export default function RecordDetail() {
                 </div>
               </div>
             ) : textView === "markdown" ? (
-              <MarkdownView source={String(rec.data?.markdown ?? rec.data?.full_text ?? "")} maxHeight="520px" />
+              <MarkdownView source={deriveRecordText(rec.data)} maxHeight="520px" />
             ) : (
               <div className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 dark:bg-white/5 p-3 text-sm leading-relaxed text-slate-700 dark:text-slate-300" style={{ fontFamily: "'Noto Sans Khmer', 'Khmer OS Siemreap', 'Segoe UI', sans-serif" }}>
                 {String(rec.data?.full_text ?? rec.data?.markdown ?? "—")}

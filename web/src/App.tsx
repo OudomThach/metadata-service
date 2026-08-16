@@ -126,9 +126,41 @@ function BrandMark({ className }: { className?: string }) {
   );
 }
 
+function NavContent({ rawPending, onNavigate }: { rawPending: number; onNavigate?: () => void }) {
+  return (
+    <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-2" aria-label="Primary">
+      {NAV_SECTIONS.map((section) => (
+        <div key={section.label}>
+          <div className="mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            {section.label}
+          </div>
+          <div className="space-y-0.5">
+            {section.items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                onClick={onNavigate}
+                className={({ isActive }) =>
+                  `nav-item w-full ${isActive ? "nav-item-active" : ""}`
+                }
+              >
+                <span className="nav-icon shrink-0">{item.icon}</span>
+                <span className="truncate">{item.label}</span>
+                {item.badge?.(rawPending)}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
 export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => getToken() !== null);
   const [user, setUser] = useState(getUser());
+  const [navOpen, setNavOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
 
   // Live "awaiting review" count for the Verify queue badge.
@@ -195,31 +227,7 @@ export default function App() {
         </div>
         <div className="temple-ridge mx-3 mb-2 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
 
-        <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-2" aria-label="Primary">
-          {NAV_SECTIONS.map((section) => (
-            <div key={section.label}>
-              <div className="mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                {section.label}
-              </div>
-              <div className="space-y-0.5">
-                {section.items.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    className={({ isActive }) =>
-                      `nav-item w-full ${isActive ? "nav-item-active" : ""}`
-                    }
-                  >
-                    <span className="nav-icon shrink-0">{item.icon}</span>
-                    <span className="truncate">{item.label}</span>
-                    {item.badge?.(rawPending)}
-                  </NavLink>
-                ))}
-              </div>
-            </div>
-          ))}
-        </nav>
+        <NavContent rawPending={rawPending} />
 
         <div className="space-y-2 border-t border-slate-200 px-3 py-3">
           <div className="flex items-center gap-2">
@@ -238,6 +246,55 @@ export default function App() {
       </aside>
 
       <main className="relative z-10 min-w-0 flex-1">
+        {/* Mobile top bar — nav lives in a drawer below sm */}
+        <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-slate-200 bg-white/80 px-3 py-2 backdrop-blur-md sm:hidden">
+          <button
+            type="button"
+            onClick={() => setNavOpen(true)}
+            className="btn-secondary px-2.5 py-2"
+            aria-label="Open navigation"
+            aria-expanded={navOpen}
+          >
+            <Icon><path d="M3 6h18M3 12h18M3 18h18" /></Icon>
+          </button>
+          <h1 className="truncate text-sm font-semibold tracking-tight text-slate-950 dark:text-slate-100">
+            Romdoul <span className="text-accent">Data Sharing</span>
+          </h1>
+          <button type="button" onClick={toggleTheme} className="btn-secondary ml-auto px-2.5 py-2" aria-label="Toggle theme">
+            {theme === "dark" ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
+          </button>
+        </div>
+
+        {/* Mobile drawer */}
+        {navOpen && (
+          <div className="fixed inset-0 z-30 sm:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+              onClick={() => setNavOpen(false)}
+              aria-label="Close navigation"
+            />
+            <aside className="relative flex h-full w-72 max-w-[85%] flex-col border-r border-slate-200 bg-white/95 backdrop-blur-md dark:bg-slate-900/95">
+              <div className="flex items-center justify-between px-3 py-4">
+                <span className="text-sm font-semibold tracking-tight text-slate-950 dark:text-slate-100">Menu</span>
+                <button type="button" onClick={() => setNavOpen(false)} className="btn-ghost px-2 py-1" aria-label="Close navigation">
+                  <Icon><path d="M18 6 6 18M6 6l12 12" /></Icon>
+                </button>
+              </div>
+              <NavContent rawPending={rawPending} onNavigate={() => setNavOpen(false)} />
+              <div className="space-y-2 border-t border-slate-200 px-3 py-3">
+                <button type="button" onClick={signOut} className="btn-ghost w-full justify-center py-2" title="Sign out">
+                  Sign out
+                </button>
+                <p className="px-1 text-[11px] text-slate-400">
+                  Signed in as <span className="font-medium text-slate-600 dark:text-slate-300">{user?.username ?? "—"}</span>
+                  {user?.role && <span className="badge ml-1.5 border-accent/30 bg-accent/10 text-accent">{user.role}</span>}
+                </p>
+              </div>
+            </aside>
+          </div>
+        )}
+
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/explore" element={<Explore />} />

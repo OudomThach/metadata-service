@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from .constants import RECORD_STATUSES
+
 
 # --------------------------------------------------------------------------- #
 # Envelope models — domain-agnostic metadata, validated at the API boundary
@@ -70,10 +72,31 @@ class RecordCreate(BaseModel):
         return v
 
 
+_RECORD_STATUS_RE = r"^(" + "|".join(RECORD_STATUSES) + r")$"
+
+
 class RecordPatch(BaseModel):
     data: dict[str, Any] | None = None
     business: BusinessIn | None = None
-    status: str | None = Field(default=None, pattern=r"^(raw|edited|verified)$")
+    status: str | None = Field(default=None, pattern=_RECORD_STATUS_RE)
+
+
+class RecordBatchIn(BaseModel):
+    items: list[RecordCreate] = Field(min_length=1, max_length=500)
+
+
+class BatchItemResult(BaseModel):
+    id: str | None = None
+    ok: bool
+    error: dict[str, Any] | None = None
+
+
+class RecordBatchOut(BaseModel):
+    created: int
+    updated: int
+    skipped: int
+    failed: int
+    results: list[BatchItemResult]
 
 
 # --------------------------------------------------------------------------- #
@@ -244,3 +267,58 @@ class SettingOut(BaseModel):
 class PasswordChangeIn(BaseModel):
     current_password: str = Field(min_length=1)
     new_password: str = Field(min_length=8)
+
+
+# --------------------------------------------------------------------------- #
+# Auth schemas
+# --------------------------------------------------------------------------- #
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class CreateUserIn(BaseModel):
+    username: str
+    password: str
+    role: str = "viewer"
+    organization_id: int | None = None
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    role: str
+    organization_id: int | None = None
+
+
+class UpdateUserIn(BaseModel):
+    role: str | None = None
+    organization_id: int | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Webhook schemas
+# --------------------------------------------------------------------------- #
+class WebhookIn(BaseModel):
+    url: str
+    events: list[str] = ["create", "update", "delete"]
+
+
+class WebhookOut(BaseModel):
+    id: int
+    url: str
+    events: list[str]
+    enabled: bool
+
+
+# --------------------------------------------------------------------------- #
+# Health / meta schemas
+# --------------------------------------------------------------------------- #
+class HealthOut(BaseModel):
+    status: str
+    db: str
+
+
+class MetaOut(BaseModel):
+    types: list[str]
+    domains: list[str]

@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import Any
 
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -41,14 +42,14 @@ class Record(Base):
     pipeline_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     validation_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    validation_warnings: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    validation_warnings: Mapped[list[str] | None] = mapped_column(JsonType, nullable=True)
 
     is_duplicate: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     coverage: Mapped[float | None] = mapped_column(Float, nullable=True)
     raw_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
-    envelope: Mapped[dict] = mapped_column(JsonType)
-    data: Mapped[dict] = mapped_column(JsonType)
+    envelope: Mapped[dict[str, Any]] = mapped_column(JsonType)
+    data: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
 
 class AuditEvent(Base):
@@ -59,7 +60,7 @@ class AuditEvent(Base):
     action: Mapped[str] = mapped_column(String(16))  # create | update | delete | verify
     actor: Mapped[str] = mapped_column(String(128), default="system:unknown")
     at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    envelope_snapshot: Mapped[dict] = mapped_column(JsonType)
+    envelope_snapshot: Mapped[dict[str, Any]] = mapped_column(JsonType)
 
 
 class User(Base):
@@ -69,7 +70,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     role: Mapped[str] = mapped_column(String(16), default="viewer")  # admin | viewer
-    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -101,7 +104,7 @@ class Organization(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     org_type: Mapped[str] = mapped_column(String(32), default="other")  # government|private|ngo|other
-    contact: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    contact: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -109,7 +112,9 @@ class Category(Base):
     __tablename__ = "categories"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    parent_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="CASCADE"), nullable=True, index=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(128), index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort: Mapped[int] = mapped_column(Integer, default=0)
@@ -122,20 +127,27 @@ class Collection(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Dataset(Base):
     """First-class dataset: created from an extraction record + the post-OCR
     dataset form, then managed (draft -> published -> archived)."""
+
     __tablename__ = "datasets"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    record_id: Mapped[str | None] = mapped_column(ForeignKey("records.id", ondelete="SET NULL"), nullable=True, index=True)
+    record_id: Mapped[str | None] = mapped_column(
+        ForeignKey("records.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(256), index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    organization_id: Mapped[int | None] = mapped_column(ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True
+    )
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id", ondelete="SET NULL"), nullable=True)
     coverage_start: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
@@ -150,22 +162,25 @@ class Dataset(Base):
     file_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     file_base64: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Schema editor + references (from the record's data.columns / data.references).
-    columns: Mapped[list | None] = mapped_column(JsonType, nullable=True)
-    references: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    columns: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonType, nullable=True)
+    references: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AuditEventGlobal(Base):
     """Global audit trail across entities (records, datasets, users, ...)."""
+
     __tablename__ = "audit_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     actor: Mapped[str] = mapped_column(String(128), default="system:unknown", index=True)
     action: Mapped[str] = mapped_column(String(32), index=True)  # create|update|delete|verify|publish|login|logout|...
-    entity_type: Mapped[str] = mapped_column(String(32), index=True)  # record|dataset|user|category|collection|organization|setting
+    entity_type: Mapped[str] = mapped_column(
+        String(32), index=True
+    )  # record|dataset|user|category|collection|organization|setting
     entity_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    detail: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
@@ -173,5 +188,7 @@ class Setting(Base):
     __tablename__ = "settings"
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
-    value: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
-    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    value: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

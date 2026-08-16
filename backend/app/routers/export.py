@@ -2,10 +2,12 @@ import csv
 import datetime as dt
 import io
 import json
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import crud, models
@@ -17,16 +19,38 @@ router = APIRouter(prefix="/api/v1", tags=["export"], dependencies=[Depends(requ
 
 def _csv_headers() -> list[str]:
     return [
-        "id", "type", "domain", "status", "business_date", "tags", "created_at", "created_by",
-        "edited_at", "edited_by", "edit_count", "ingested_at", "source_filename", "source_model",
-        "source_system", "source_page", "extracted_at", "validation_status", "pipeline_run_id",
-        "pipeline_batch_id", "is_duplicate", "coverage", "data",
+        "id",
+        "type",
+        "domain",
+        "status",
+        "business_date",
+        "tags",
+        "created_at",
+        "created_by",
+        "edited_at",
+        "edited_by",
+        "edit_count",
+        "ingested_at",
+        "source_filename",
+        "source_model",
+        "source_system",
+        "source_page",
+        "extracted_at",
+        "validation_status",
+        "pipeline_run_id",
+        "pipeline_batch_id",
+        "is_duplicate",
+        "coverage",
+        "data",
     ]
 
 
 def _csv_row(r: models.Record) -> list[str]:
     return [
-        r.id, r.type, r.domain or "", r.status,
+        r.id,
+        r.type,
+        r.domain or "",
+        r.status,
         r.business_date.isoformat() if r.business_date else "",
         json.dumps(r.tags or [], ensure_ascii=False),
         r.created_at.isoformat() if r.created_at else "",
@@ -35,20 +59,65 @@ def _csv_row(r: models.Record) -> list[str]:
         r.edited_by or "",
         str(r.edit_count),
         r.ingested_at.isoformat() if r.ingested_at else "",
-        r.source_filename or "", r.source_model or "", r.source_system or "",
+        r.source_filename or "",
+        r.source_model or "",
+        r.source_system or "",
         str(r.source_page) if r.source_page is not None else "",
         r.extracted_at.isoformat() if r.extracted_at else "",
         r.validation_status or "",
-        r.pipeline_run_id or "", r.pipeline_batch_id or "",
+        r.pipeline_run_id or "",
+        r.pipeline_batch_id or "",
         str(r.is_duplicate) if r.is_duplicate is not None else "",
         f"{r.coverage:.3f}" if r.coverage is not None else "",
         json.dumps(r.data or {}, ensure_ascii=False),
     ]
 
 
+def _json_row(r: models.Record) -> dict[str, Any]:
+    return crud.to_out(r).model_dump(mode="json")
+
+
+async def _stream_csv(session: AsyncSession, stmt: Select[tuple[models.Record]]) -> StreamingResponse:
+    """Stream rows from the DB in chunks so memory stays flat at any scale."""
+
+    async def generate() -> AsyncIterator[str]:
+        yield "\ufeff"  # BOM once — Excel-safe UTF-8
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(_csv_headers())
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        result = await session.stream(stmt.execution_options(yield_per=500))
+        async for r in result.scalars():
+            writer.writerow(_csv_row(r))
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="records-{dt.date.today().isoformat()}.csv"'},
+    )
+
+
+async def _stream_jsonl(session: AsyncSession, stmt: Select[tuple[models.Record]]) -> StreamingResponse:
+    async def generate() -> AsyncIterator[str]:
+        result = await session.stream(stmt.execution_options(yield_per=500))
+        async for r in result.scalars():
+            yield json.dumps(_json_row(r), ensure_ascii=False) + "\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="records-{dt.date.today().isoformat()}.jsonl"'},
+    )
+
+
 @router.get("/export", response_model=None)
 async def export(
-    format: str = Query(pattern=r"^(csv|json)$"),
+    format: str = Query(pattern=r"^(csv|json|jsonl)$"),
     session: AsyncSession = Depends(get_session),
     type: str | None = Query(default=None),
     domain: str | None = Query(default=None),
@@ -73,18 +142,12 @@ async def export(
         created_to=created_to,
         q=q,
     ).order_by(models.Record.created_at.desc())
-    rows = (await session.execute(stmt)).scalars().all()
 
     if format == "json":
-        return JSONResponse(content=[crud.to_out(r).model_dump(mode="json") for r in rows])
+        rows = (await session.execute(stmt)).scalars().all()
+        return JSONResponse(content=[_json_row(r) for r in rows])
 
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(_csv_headers())
-    for r in rows:
-        writer.writerow(_csv_row(r))
-    return StreamingResponse(
-        iter([buf.getvalue()]),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="records-{dt.date.today().isoformat()}.csv"'},
-    )
+    if format == "jsonl":
+        return await _stream_jsonl(session, stmt)
+
+    return await _stream_csv(session, stmt)

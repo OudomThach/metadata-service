@@ -29,7 +29,7 @@ services:
       METADATA_ADMIN_USERNAME: ${METADATA_ADMIN_USERNAME:-admin}
       METADATA_ADMIN_PASSWORD: ${METADATA_ADMIN_PASSWORD:-admin}
     ports:
-      - "${METADATA_PORT:-8095}:8095"
+      - "127.0.0.1:${METADATA_PORT:-8095}:8095"
     networks:
       - default
       - surya

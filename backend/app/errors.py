@@ -1,6 +1,9 @@
+from typing import Any
+
 from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class APIError(HTTPException):
@@ -9,18 +12,20 @@ class APIError(HTTPException):
         self.code = code
 
 
-def _error_body(code: str, message: str, fields: dict | None = None) -> dict:
-    body: dict = {"code": code, "message": message}
+def _error_body(code: str, message: str, fields: dict[str, Any] | None = None) -> dict[str, Any]:
+    body: dict[str, Any] = {"code": code, "message": message}
     if fields:
         body["fields"] = fields
     return {"error": body}
 
 
-async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
+async def api_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, APIError)
     return JSONResponse(status_code=exc.status_code, content=_error_body(exc.code, str(exc.detail)))
 
 
-async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, RequestValidationError)
     fields: dict[str, str] = {}
     for err in exc.errors():
         loc = ".".join(str(p) for p in err.get("loc", []) if p not in ("body", "query", "path"))
@@ -31,5 +36,6 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     )
 
 
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, StarletteHTTPException)
     return JSONResponse(status_code=exc.status_code, content=_error_body("http_error", str(exc.detail)))
