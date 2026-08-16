@@ -132,7 +132,8 @@ export default function Records() {
             🔖 Save filter
           </button>
           <a className="btn-secondary" href={api.exportUrl("csv", filters)}>CSV</a>
-          <a className="btn-secondary" href={api.exportUrl("json", filters)}>JSON</a>
+          <a className="btn-secondary" href={api.exportUrl("jsonl", filters)}>JSONL</a>
+          <a className="btn-secondary" href={api.exportUrl("parquet", filters)}>Parquet</a>
         </div>
       </div>
 
