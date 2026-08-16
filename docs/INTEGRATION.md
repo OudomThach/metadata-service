@@ -11,14 +11,16 @@ Base URL: `https://<host>/api-meta` (behind the Romdoul nginx) or
 
 | Consumer | Mechanism |
 |---|---|
-| Machine / pipeline | `X-API-Key: <key>` header (set `METADATA_API_KEYS`) |
-| Portal user | username + password login → `X-Session-Token` header |
-| Record ingest (`POST /records`, `POST /records/batch`) | **open** by design — pipelines record without shipping credentials |
+| Machine / pipeline | **No key needed** — the records API (read/write/export/stats) is open by design |
+| Role-gated ops | Present `X-API-Key` or a portal session token to get admin/editor role checks |
+| Admin surface | Portal login (`/auth/login` → `X-Session-Token`), `/settings`, `/audit`, `/webhooks` are admin-only |
 
-> **Before exposing this service to the public internet:** require keys on
-> ingest (drop the open POST), add server-side rate limiting (429 +
-> `Retry-After`), and rotate keys. The README's "rate-limited at nginx" claim
-> is only true if nginx actually fronts the deployment.
+> **Before exposing this service to the public internet:** review the open
+> API decision — reads/exports are intentionally keyless (analysts/DEs), but
+> if you want authenticated access, re-enable `require_auth` on the record
+> routers, add server-side rate limiting (429 + `Retry-After`), and rotate
+> keys. The README's "rate-limited at nginx" claim is only true if nginx
+> actually fronts the deployment.
 
 ## Error format
 
@@ -126,7 +128,7 @@ targets are allowed (SSRF guard).
 ## Error-handling guidance for pipelines
 
 - `409` → use `on_duplicate=skip|replace` instead of erroring
-- `401` → bad/missing `X-API-Key`
+- `401` → bad/missing session token or key on a role-gated endpoint
 - `422` → validation error, inspect `error.fields`
 - `5xx` → retry with exponential backoff (the service is stateless per request)
 

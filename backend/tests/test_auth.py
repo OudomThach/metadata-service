@@ -37,11 +37,12 @@ async def test_login_me_and_reads(client, monkeypatch):
     assert r.status_code == 200
     assert r.json() == {"id": 0, "username": "admin", "role": "admin", "organization_id": None}
 
-    # reads without credentials are blocked
-    assert (await client.get("/api/v1/records")).status_code == 401
-    assert (await client.get("/api/v1/stats")).status_code == 401
+    # reads are OPEN (no credentials needed) — data engineers/analysts can pull
+    # records, stats and exports keyless; the admin surface stays gated.
+    assert (await client.get("/api/v1/records")).status_code == 200
+    assert (await client.get("/api/v1/stats")).status_code == 200
 
-    # reads with the session token work
+    # reads with the session token work too
     assert (await client.get("/api/v1/records", headers={"X-Session-Token": token})).status_code == 200
     assert (await client.get("/api/v1/stats", headers={"X-Session-Token": token})).status_code == 200
 
@@ -54,7 +55,9 @@ async def test_logout_revokes_session(client, monkeypatch):
     r = await client.post("/api/v1/auth/logout", headers={"X-Session-Token": token})
     assert r.status_code == 200
 
-    r = await client.get("/api/v1/records", headers={"X-Session-Token": token})
+    # records are open, but a REVOKED session token is no longer valid for
+    # role-gated operations — the admin surface (auth/me) rejects it.
+    r = await client.get("/api/v1/auth/me", headers={"X-Session-Token": token})
     assert r.status_code == 401
 
 
@@ -77,9 +80,13 @@ async def test_api_key_still_works(client, monkeypatch):
     from app import config
 
     monkeypatch.setattr(config.settings, "api_keys", "machine-key-1")
+    # Records are open, so a valid key still works — and a BAD key no longer
+    # blocks keyless reads (open API). Role-gated endpoints still reject it.
     r = await client.get("/api/v1/records", headers={"X-API-Key": "machine-key-1"})
     assert r.status_code == 200
     r = await client.get("/api/v1/records", headers={"X-API-Key": "nope"})
+    assert r.status_code == 200
+    r = await client.get("/api/v1/audit", headers={"X-API-Key": "nope"})
     assert r.status_code == 401
 
 

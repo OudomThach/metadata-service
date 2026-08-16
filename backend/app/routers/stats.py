@@ -6,9 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import crud
 from ..db import get_session
 from ..schemas import MetaOut
-from ..security import require_auth
 
-router = APIRouter(prefix="/api/v1", tags=["stats"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api/v1", tags=["stats"])
 
 
 @router.get("/stats")

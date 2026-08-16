@@ -12,13 +12,15 @@ from ..constants import RECORD_STATUSES
 from ..db import get_session
 from ..errors import APIError
 from ..promote import find_dataset_for_record, promote_record_to_dataset
-from ..security import Actor, require_auth, user_by_token
+from ..security import Actor, require_auth_optional, user_by_token
 from .webhooks import fire_webhooks
 
-# POST /records is deliberately OPEN so extraction pipelines can record from
-# anywhere without shipping a key in a public bundle (idempotent via client id,
-# rate-limited at nginx). Everything else — reads, edits, deletes — requires a
-# valid X-API-Key (see auth).
+# The records API is deliberately OPEN so extraction pipelines, data engineers
+# and analysts can read/write without shipping keys in a public bundle.
+# Idempotent via client id, rate-limited at nginx. When a session or API key
+# IS presented, role checks still apply (admin/editor for writes, admin for
+# bulk ops). Only the admin surface (/auth, /settings, /audit, /webhooks,
+# /users) stays login-gated.
 router = APIRouter(prefix="/api/v1/records", tags=["records"])
 
 
@@ -210,8 +212,8 @@ async def create_records_batch(
 
 @router.get("", response_model=schemas.PageOut)
 async def list_records(
-    _actor: Actor = Depends(require_auth),
     session: AsyncSession = Depends(get_session),
+    _actor: Actor | None = Depends(require_auth_optional),
     type: str | None = Query(default=None),
     domain: str | None = Query(default=None),
     status: str | None = Query(default=None),
@@ -254,7 +256,7 @@ async def list_records(
 
 @router.get("/{record_id}", response_model=schemas.RecordOut)
 async def get_record(
-    record_id: str, session: AsyncSession = Depends(get_session), _actor: Actor = Depends(require_auth)
+    record_id: str, session: AsyncSession = Depends(get_session), _actor: Actor | None = Depends(require_auth_optional)
 ) -> schemas.RecordOut:
     rec = await session.get(models.Record, record_id)
     if not rec:
@@ -265,15 +267,18 @@ async def get_record(
 @router.delete("", response_model=dict[str, int])
 async def bulk_delete_records(
     session: AsyncSession = Depends(get_session),
-    _actor: Actor = Depends(require_auth),
+    _actor: Actor | None = Depends(require_auth_optional),
     type: str | None = Query(default=None),
     domain: str | None = Query(default=None),
     status: str | None = Query(default=None),
     tag: str | None = Query(default=None),
     created_before: dt.datetime | None = Query(default=None),
 ) -> dict[str, Any]:
-    if _actor.role != "admin":
+    # Open by design (pipelines manage their own data). When a session/key IS
+    # presented, the caller's role still applies.
+    if _actor is not None and _actor.role != "admin":
         raise APIError(403, "forbidden", "Admin role required")
+    actor_label = _actor.label() if _actor else "system:api"
     stmt = crud.apply_filters(
         select(models.Record),
         dialect=session.get_bind().dialect.name,
@@ -290,7 +295,7 @@ async def bulk_delete_records(
     rows = (await session.execute(stmt)).scalars().all()
     count = len(rows)
     for r in rows:
-        await crud.log_audit(session, r.id, "delete", _actor.label(), r.envelope or {})
+        await crud.log_audit(session, r.id, "delete", actor_label, r.envelope or {})
         await session.delete(r)
     await session.commit()
     return {"deleted": count}
@@ -300,7 +305,7 @@ async def bulk_delete_records(
 async def record_history(
     record_id: str,
     session: AsyncSession = Depends(get_session),
-    _actor: Actor = Depends(require_auth),
+    _actor: Actor | None = Depends(require_auth_optional),
 ) -> list[schemas.AuditEventOut]:
     rec = await session.get(models.Record, record_id)
     if not rec:
@@ -334,14 +339,16 @@ async def patch_record(
     payload: schemas.RecordPatch,
     session: AsyncSession = Depends(get_session),
     x_edited_by: str | None = Header(default=None),
-    _actor: Actor = Depends(require_auth),
+    _actor: Actor | None = Depends(require_auth_optional),
 ) -> schemas.RecordOut:
-    if _actor.role not in ("admin", "editor"):
+    # Open by design (pipelines correct their own records). Role checks apply
+    # only when a session/key IS presented.
+    if _actor is not None and _actor.role not in ("admin", "editor"):
         raise APIError(403, "forbidden", "Admin or editor role required to edit records")
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
-    actor = x_edited_by or _actor.label()
+    actor = x_edited_by or (_actor.label() if _actor else "system:api")
     now = dt.datetime.now(dt.timezone.utc)
 
     env = dict(rec.envelope or {})
@@ -384,25 +391,28 @@ async def patch_record(
 async def delete_record(
     record_id: str,
     session: AsyncSession = Depends(get_session),
-    _actor: Actor = Depends(require_auth),
+    _actor: Actor | None = Depends(require_auth_optional),
 ) -> None:
     rec = await session.get(models.Record, record_id)
     if not rec:
         raise APIError(404, "not_found", f"record {record_id} not found")
-    if _actor.role != "admin":
+    # Open by design; role check applies only when a session/key is presented.
+    if _actor is not None and _actor.role != "admin":
         raise APIError(403, "forbidden", "Admin role required to delete records")
-    actor = _actor.label()
+    actor = _actor.label() if _actor else "system:api"
     await crud.log_audit(session, record_id, "delete", actor, rec.envelope or {})
     await session.delete(rec)
     await session.commit()
     asyncio.create_task(fire_webhooks(record_id, "delete", rec.envelope or {}))
 
 
-async def _auto_promote(session: AsyncSession, rec: models.Record, actor: Actor) -> None:
+async def _auto_promote(session: AsyncSession, rec: models.Record, actor: Actor | None) -> None:
     """When a record is verified and carries a dataset payload, promote it to a
     first-class Dataset (draft) unless auto_promote is disabled in settings or
     the record was already promoted. Runs inside the caller's transaction."""
-    if actor.role not in ("admin", "editor"):
+    # Unauthenticated callers (open API) are treated as editors for promotion;
+    # a presented session/key with a lower role is not.
+    if actor is not None and actor.role not in ("admin", "editor"):
         return
     if not ((rec.data or {}).get("dataset") or {}).get("name"):
         return
@@ -411,4 +421,4 @@ async def _auto_promote(session: AsyncSession, rec: models.Record, actor: Actor)
     setting = await session.get(models.Setting, "auto_promote")
     if setting is not None and (setting.value or {}).get("enabled") is False:
         return
-    await promote_record_to_dataset(session, rec, actor.label(), auto=True)
+    await promote_record_to_dataset(session, rec, actor.label() if actor else "system:api", auto=True)

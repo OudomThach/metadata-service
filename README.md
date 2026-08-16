@@ -78,23 +78,30 @@ codes, idempotency semantics, and export recipes.
 
 ### Auth
 
+The **records API is open by design** — reads, writes, exports and stats need
+no credentials, so extraction pipelines, data engineers and analysts can use
+the service without shipping keys (idempotent via client id, rate-limited at
+nginx). When a session token or `X-API-Key` IS presented, role checks still
+apply (viewer cannot edit/delete; admin for bulk ops). Only the **admin
+surface** (portal login, `/settings`, `/audit`, `/webhooks`, `/auth/users`)
+stays gated.
+
 Portal users: username + password (`users`/`sessions`, PBKDF2 hashed, 30-day
 tokens) — session sent as `X-Session-Token`. Machine consumers: `X-API-Key`.
-`POST /records` stays open so pipelines record without shipping credentials.
 The service refuses to boot with a default/empty `METADATA_ADMIN_PASSWORD`.
 
 | Method | Path | Auth |
 |---|---|---|
 | POST | `/api/v1/records` | open |
 | POST | `/api/v1/records/batch` | open |
+| GET | `/api/v1/records` … | open (role-checked when session/key present) |
+| GET | `/api/v1/records/{id}` | open |
+| PATCH/DELETE | `/api/v1/records/{id}` | open (role-checked when session/key present) |
+| GET | `/api/v1/export` | open |
+| GET | `/api/v1/stats`, `/api/v1/meta` | open |
+| GET | `/api/v1/settings`, `/api/v1/audit`, `/api/v1/webhooks` | admin (session or `X-API-Key`) |
 | POST | `/api/v1/auth/login` | open |
 | GET | `/api/v1/auth/me`, POST `/api/v1/auth/logout` | session |
-| GET | `/api/v1/records` … | session or `X-API-Key` |
-| GET | `/api/v1/records/{id}` | session or `X-API-Key` |
-| PATCH/DELETE | `/api/v1/records/{id}` | session or `X-API-Key` |
-| GET | `/api/v1/export` | session or `X-API-Key` |
-| GET | `/api/v1/stats`, `/api/v1/meta` | session or `X-API-Key` |
-| GET | `/api/v1/settings`, `/api/v1/audit`, `/api/v1/webhooks` | admin (session or `X-API-Key`) |
 | GET | `/health`, `/api/docs` | open |
 
 ### Error format

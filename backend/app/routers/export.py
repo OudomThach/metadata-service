@@ -12,9 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import crud, models
 from ..db import get_session
-from ..security import require_auth
 
-router = APIRouter(prefix="/api/v1", tags=["export"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api/v1", tags=["export"])
 
 
 def _csv_headers() -> list[str]:
