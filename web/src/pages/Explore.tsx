@@ -25,16 +25,6 @@ export default function Explore() {
   const colName = (id: number | null) => cols?.find((c) => c.id === id)?.name ?? "—";
   const orgName = (id: number | null) => orgs?.find((o) => o.id === id)?.name ?? "—";
 
-  const downloadText = (name: string, content: string, type: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="p-6 max-w-6xl">
       <div className="mb-1 text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">Explore datasets</div>
@@ -83,26 +73,13 @@ export default function Explore() {
                 <div className="border-t border-slate-200 px-4 py-3 dark:border-white/10">
                   {d.description && <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">{d.description}</p>}
                   <div className="flex flex-wrap items-center gap-2">
-                    {d.file_base64 && d.file_name && (
-                      <button type="button" className="btn-primary px-3 py-1.5 text-xs"
-                        onClick={() => {
-                          const raw = atob(d.file_base64!.replace(/-/g, "+").replace(/_/g, "/"));
-                          const bytes = new Uint8Array(raw.length);
-                          for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-                          downloadText(d.file_name!, "", "application/octet-stream");
-                          const blob = new Blob([bytes], { type: d.file_type || "application/octet-stream" });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = d.file_name!;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                        }}>
+                    {d.file_name && (
+                      <a className="btn-primary px-3 py-1.5 text-xs" href={api.datasetFileUrl(d.id)}>
                         ⬇ Download {d.file_name}
-                      </button>
+                      </a>
                     )}
                     {d.url && <a href={d.url} target="_blank" rel="noreferrer" className="btn-ghost px-3 py-1.5 text-xs">Source link ↗</a>}
-                    {!d.file_base64 && <span className="text-xs text-slate-400">No embedded file — contact the publisher for the data.</span>}
+                    {!d.file_name && <span className="text-xs text-slate-400">No embedded file — contact the publisher for the data.</span>}
                   </div>
                 </div>
               )}

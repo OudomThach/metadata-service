@@ -142,6 +142,15 @@ class AuditEventOut(BaseModel):
     snapshot: dict[str, Any]
 
 
+class TraceOut(BaseModel):
+    """Full lineage + immutable audit chain for one record — answers "where did
+    this come from, who touched it, when, and what did it become"."""
+    record: RecordOut
+    lineage: dict[str, Any]
+    audit: list[AuditEventOut]
+    dataset: dict[str, Any] | None = None
+
+
 class ErrorOut(BaseModel):
     error: dict[str, Any]
 

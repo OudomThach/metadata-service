@@ -19,6 +19,8 @@ def apply_filters(
     business_to: dt.date | None,
     created_from: dt.datetime | None,
     created_to: dt.datetime | None,
+    edited_from: dt.datetime | None,
+    edited_to: dt.datetime | None,
     q: str | None,
 ) -> Select[tuple[models.Record]]:
     if type:
@@ -40,6 +42,10 @@ def apply_filters(
         stmt = stmt.where(models.Record.created_at >= created_from)
     if created_to:
         stmt = stmt.where(models.Record.created_at <= created_to)
+    if edited_from:
+        stmt = stmt.where(models.Record.edited_at >= edited_from)
+    if edited_to:
+        stmt = stmt.where(models.Record.edited_at <= edited_to)
     if q:
         # Full-text-ish search across the extraction data (incl. full_text)
         # AND the envelope (business metadata, tags, titles, ...).
@@ -93,6 +99,32 @@ def to_out(rec: models.Record) -> schemas.RecordOut:
         edit_count=rec.edit_count,
         source_model=rec.source_model,
         source_system=rec.source_system,
+    )
+
+
+def dataset_to_out(d: models.Dataset) -> schemas.DatasetOut:
+    return schemas.DatasetOut(
+        id=d.id,
+        record_id=d.record_id,
+        name=d.name,
+        description=d.description,
+        organization_id=d.organization_id,
+        category_id=d.category_id,
+        collection_id=d.collection_id,
+        coverage_start=d.coverage_start,
+        coverage_end=d.coverage_end,
+        frequency=d.frequency,
+        url=d.url,
+        status=d.status,
+        published_at=d.published_at,
+        file_name=d.file_name,
+        file_size=d.file_size,
+        file_type=d.file_type,
+        file_base64=d.file_base64,
+        columns=d.columns,
+        references=d.references,
+        created_at=d.created_at,
+        updated_at=d.updated_at,
     )
 
 

@@ -29,25 +29,31 @@ const endpoints = [
   },
   {
     method: "GET",
-    path: "/api-meta/api/v1/records?type=&domain=&status=&tag=&business_from=&business_to=&created_from=&created_to=&q=&page=1&page_size=50&sort=created_at:desc",
-    desc: "List records with filters, pagination and sorting. Requires X-API-Key.",
+    path: "/api-meta/api/v1/records?type=&domain=&status=&tag=&business_from=&business_to=&created_from=&created_to=&edited_from=&edited_to=&q=&page=1&page_size=50&sort=created_at:desc",
+    desc: "List records with filters, pagination and sorting. Open — no credentials needed.",
   },
-  { method: "GET", path: "/api-meta/api/v1/records/{id}", desc: "Fetch one record (full envelope + data). Requires X-API-Key." },
+  { method: "GET", path: "/api-meta/api/v1/records/{id}", desc: "Fetch one record (full envelope + data). Open." },
+  {
+    method: "GET",
+    path: "/api-meta/api/v1/records/{id}/trace",
+    desc: "Full lineage + immutable audit chain — provenance, pipeline job id, every edit with actor/timestamp, promoted dataset. Open.",
+  },
   {
     method: "PATCH",
     path: "/api-meta/api/v1/records/{id}",
     desc: "Edit data / business / status. Auto-updates audit: edited_at, edited_by, edit_count++, status→edited. Send X-Edited-By: user:<name>.",
     body: `{ "data": { "order_no": "INV-9999" }, "status": "verified" }`,
   },
-  { method: "DELETE", path: "/api-meta/api/v1/records/{id}", desc: "Delete a record (audit entry is kept). Requires X-API-Key." },
+  { method: "DELETE", path: "/api-meta/api/v1/records/{id}", desc: "Delete a record (audit entry is kept)." },
   {
     method: "GET",
-    path: "/api-meta/api/v1/export?format=csv|json|jsonl",
-    desc: "Export filtered records. CSV is flattened for spreadsheets (UTF-8 BOM); JSONL streams for pipelines; JSON is the full envelope. Requires X-API-Key.",
+    path: "/api-meta/api/v1/export?format=csv|json|jsonl|parquet",
+    desc: "Export filtered records. CSV flattened for spreadsheets (UTF-8 BOM); JSONL and Parquet stream for pipelines/analysts. Filters include created_from/to + edited_from/to for incremental sync. Open.",
   },
-  { method: "GET", path: "/api-meta/api/v1/stats", desc: "Aggregates: totals by status / type / domain, per-day. Requires X-API-Key." },
-  { method: "GET", path: "/api-meta/api/v1/meta", desc: "Distinct types and domains (for filter dropdowns). Requires X-API-Key." },
+  { method: "GET", path: "/api-meta/api/v1/stats", desc: "Aggregates: totals by status / type / domain, per-day. Open." },
+  { method: "GET", path: "/api-meta/api/v1/meta", desc: "Distinct types and domains (for filter dropdowns). Open." },
   { method: "GET", path: "/api-meta/api/v1/webhooks", desc: "Admin: register event-driven hooks (create/update/delete). Public http(s) targets only." },
+  { method: "GET", path: "/api-meta/api/v1/datasets/{id}/file", desc: "Raw download of a published dataset's embedded file. Public." },
   { method: "GET", path: "/health", desc: "Liveness + DB check (open)." },
 ];
 
@@ -73,15 +79,39 @@ export default function DocsPage() {
       <div className="panel p-5 mb-5">
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Authentication</div>
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          Reads, edits, exports and stats require the header on every request:
+          Reads, edits, exports and stats are open — no key needed. The admin
+          surface (users, settings, audit, webhooks) requires login.
         </p>
-        <pre className="mt-2 rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-xs text-accent">{`X-API-Key: <your-team-key>`}</pre>
+        <pre className="mt-2 rounded-lg bg-slate-50 dark:bg-white/5 p-3 font-mono text-xs text-accent">{`X-Session-Token: <portal-token>`}</pre>
         <p className="mt-2 text-xs text-slate-500">
-          Sign in first with <code className="font-mono">POST /api-meta/api/v1/auth/login</code> (password = your key). The portal
-          stores the returned token. <code className="font-mono">POST /api-meta/api/v1/records</code> and{" "}
-          <code className="font-mono">/records/batch</code> are open by design so pipelines record without shipping keys in
-          public code. Editing endpoints honor <code className="font-mono">X-Edited-By: user:&lt;name&gt;</code> for audit attribution.
+          The records API is open by design so pipelines and analysts can
+          integrate without shipping keys. Editing endpoints honor{" "}
+          <code className="font-mono">X-Edited-By: user:&lt;name&gt;</code> for audit attribution.
         </p>
+      </div>
+
+      <div className="panel p-5 mb-5">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Automation & SDKs</div>
+        <ul className="space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
+          <li>
+            <strong className="text-slate-800 dark:text-slate-100">Python SDK:</strong>{" "}
+            <code className="font-mono text-xs">pip install ./sdk</code> — typed client for every endpoint (in-repo at <code className="font-mono text-xs">sdk/</code>)
+          </li>
+          <li>
+            <strong className="text-slate-800 dark:text-slate-100">Airflow DAGs:</strong>{" "}
+            <code className="font-mono text-xs">dags/</code> — batch OCR, incremental CDC sync (Parquet), dataset snapshots
+          </li>
+          <li>
+            <strong className="text-slate-800 dark:text-slate-100">Postman:</strong>{" "}
+            <a className="font-medium text-accent hover:underline" href="/api-meta/docs/romdoul.postman_collection.json" download>
+              download collection
+            </a>
+          </li>
+          <li>
+            <strong className="text-slate-800 dark:text-slate-100">Traceability:</strong>{" "}
+            <code className="font-mono text-xs">GET /api/v1/records/{'{id}'}/trace</code> — lineage + immutable audit chain
+          </li>
+        </ul>
       </div>
 
       <div className="space-y-3">

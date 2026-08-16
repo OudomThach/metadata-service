@@ -85,11 +85,15 @@ Response: per-item isolation — one bad item never rolls back the others.
 ```
 GET /api/v1/records?type=invoice&domain=logistics&status=raw&tag=import
                    &business_from=2026-08-01&business_to=2026-08-31
-                   &created_from=2026-08-01T00:00:00Z&q=INV
+                   &created_from=2026-08-01T00:00:00Z&created_to=...
+                   &edited_from=2026-08-01T00:00:00Z&edited_to=...
+                   &q=INV
                    &page=1&page_size=200&sort=created_at:desc
 ```
 
 - `q` searches record `data` + `envelope` JSON (text match)
+- `created_from/to` = new-record window; `edited_from/to` = changed-record
+  window (CDC sync: combine both for "everything new or updated since X")
 - sortable columns: `created_at`, `business_date`, `edited_at`, `type`, `status`
 - `page_size` max 200
 
@@ -99,17 +103,35 @@ GET /api/v1/records?type=invoice&domain=logistics&status=raw&tag=import
 |---|---|---|
 | CSV (UTF-8 BOM) | `GET /api/v1/export?format=csv` | Excel / spreadsheets |
 | JSONL (streamed) | `GET /api/v1/export?format=jsonl` | pipelines, `jq`, big pulls |
+| Parquet (streamed) | `GET /api/v1/export?format=parquet` | data scientists / warehouses |
 | JSON (array) | `GET /api/v1/export?format=json` | small payloads |
 
-All support the same filters as `/records`. CSV and JSONL **stream from the
-database** — memory stays flat at any row count.
+All support the same filters as `/records` (incl. `edited_from/to`). CSV,
+JSONL and Parquet **stream from the database** — memory stays flat at any row
+count.
 
 **Incremental sync recipe (Airflow daily):**
 
 ```bash
-curl "http://localhost:8095/api/v1/export?format=jsonl&created_from=$(date -u -d yesterday +%F)" \
+curl "http://localhost:8095/api/v1/export?format=jsonl&created_from=$(date -u -d yesterday +%F)&edited_from=$(date -u -d yesterday +%F)" \
   -H "X-API-Key: $KEY" > /tmp/records-$(date +%F).jsonl
 ```
+
+## Traceability
+
+Every record is traceable end-to-end (source job → ingest → edits → verify →
+dataset → export) via the open `GET /api/v1/records/{id}/trace` endpoint and
+the immutable audit chain. See [`TRACEABILITY.md`](TRACEABILITY.md).
+
+## Python SDK
+
+```bash
+pip install ./sdk
+```
+
+Typed client for every endpoint (records, batch, export, datasets, trace,
+webhooks). See [`sdk/README.md`](../sdk/README.md). Airflow DAG templates
+using it live in [`dags/`](../dags/).
 
 ## Stats & metadata
 

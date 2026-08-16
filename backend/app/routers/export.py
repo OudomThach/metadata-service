@@ -114,9 +114,63 @@ async def _stream_jsonl(session: AsyncSession, stmt: Select[tuple[models.Record]
     )
 
 
+async def _stream_parquet(session: AsyncSession, stmt: Select[tuple[models.Record]]) -> StreamingResponse:
+    """Stream records as a single Parquet file, writing row-groups from DB
+    batches so memory stays flat at any scale (same shape as JSONL streaming)."""
+    import io as _io
+
+    import pyarrow as pa  # type: ignore[import-untyped]
+    import pyarrow.parquet as pq  # type: ignore[import-untyped]
+
+    def _to_table(rows: list[models.Record]) -> pa.Table:
+        rows_out = [_json_row(r) for r in rows]
+        if not rows_out:
+            return pa.Table.from_arrays([], names=[])
+        first = _json_row(rows[0])
+        schema = pa.schema([pa.field(k, pa.string()) for k in first])
+        cols = {k: [str(r.get(k, "")) for r in rows_out] for k in first}
+        return pa.Table.from_pydict(cols, schema=schema)
+
+    async def generate() -> AsyncIterator[bytes]:
+        buf = _io.BytesIO()
+        result = await session.stream(stmt.execution_options(yield_per=500))
+        writer = None
+        try:
+            batch: list[models.Record] = []
+            async for r in result.scalars():
+                batch.append(r)
+                if len(batch) >= 500:
+                    table = _to_table(batch)
+                    if writer is None:
+                        writer = pq.ParquetWriter(buf, table.schema)
+                    writer.write_table(table)
+                    batch = []
+            if batch:
+                table = _to_table(batch)
+                if writer is None:
+                    writer = pq.ParquetWriter(buf, table.schema)
+                writer.write_table(table)
+            if writer is not None:
+                writer.close()
+            else:
+                # No rows at all — emit an empty parquet with a dummy schema.
+                empty = pa.Table.from_pydict({"id": []})
+                pq.write_table(empty, buf)
+            yield buf.getvalue()
+        finally:
+            if writer is not None:
+                writer.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/vnd.apache.parquet",
+        headers={"Content-Disposition": f'attachment; filename="records-{dt.date.today().isoformat()}.parquet"'},
+    )
+
+
 @router.get("/export", response_model=None)
 async def export(
-    format: str = Query(pattern=r"^(csv|json|jsonl)$"),
+    format: str = Query(pattern=r"^(csv|json|jsonl|parquet)$"),
     session: AsyncSession = Depends(get_session),
     type: str | None = Query(default=None),
     domain: str | None = Query(default=None),
@@ -126,6 +180,8 @@ async def export(
     business_to: dt.date | None = Query(default=None),
     created_from: dt.datetime | None = Query(default=None),
     created_to: dt.datetime | None = Query(default=None),
+    edited_from: dt.datetime | None = Query(default=None),
+    edited_to: dt.datetime | None = Query(default=None),
     q: str | None = Query(default=None, max_length=256),
 ) -> StreamingResponse | JSONResponse:
     stmt = crud.apply_filters(
@@ -139,6 +195,8 @@ async def export(
         business_to=business_to,
         created_from=created_from,
         created_to=created_to,
+        edited_from=edited_from,
+        edited_to=edited_to,
         q=q,
     ).order_by(models.Record.created_at.desc())
 
@@ -148,5 +206,8 @@ async def export(
 
     if format == "jsonl":
         return await _stream_jsonl(session, stmt)
+
+    if format == "parquet":
+        return await _stream_parquet(session, stmt)
 
     return await _stream_csv(session, stmt)

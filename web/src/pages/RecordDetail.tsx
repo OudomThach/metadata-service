@@ -138,11 +138,73 @@ function HistoryTimeline({ recordId }: { recordId: string }) {
   );
 }
 
+function LineagePanel({ recordId }: { recordId: string }) {
+  const { data: trace, isLoading, isError } = useQuery({
+    queryKey: ["trace", recordId],
+    queryFn: () => api.recordTrace(recordId),
+  });
+
+  if (isLoading) return <div className="text-sm text-slate-500">Loading lineage…</div>;
+  if (isError || !trace) return <div className="text-sm text-red-500">Could not load trace.</div>;
+
+  const lineage = (trace.lineage ?? {}) as Record<string, unknown>;
+  const pipeline = (lineage.pipeline ?? {}) as Record<string, unknown>;
+  const source = (lineage.source ?? {}) as Record<string, unknown>;
+
+  return (
+    <div className="space-y-4">
+      <Section title="Provenance — where this record came from">
+        <div className="space-y-2 text-sm">
+          <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">Source</span>
+            <span className="text-slate-700 dark:text-slate-200 break-all">
+              {String(source.filename ?? "—")}
+            </span>
+          </div>
+          <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">System</span>
+            <span className="font-mono text-xs text-slate-600 dark:text-slate-300">{String(source.source_system ?? "—")}</span>
+          </div>
+          <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">Model</span>
+            <span className="font-mono text-xs text-slate-600 dark:text-slate-300">{String(source.model ?? "—")}</span>
+          </div>
+          <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">Pipeline run</span>
+            <span className="font-mono text-xs text-accent break-all">{String(pipeline.run_id ?? "—")}</span>
+          </div>
+          <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">Batch</span>
+            <span className="font-mono text-xs text-slate-600 dark:text-slate-300">{String(pipeline.batch_id ?? "—")}</span>
+          </div>
+          <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">Version</span>
+            <span className="font-mono text-xs text-slate-600 dark:text-slate-300">{String(pipeline.version ?? "—")}</span>
+          </div>
+          {lineage.status_verified_at && (
+            <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">Verified at</span>
+              <span className="text-xs text-slate-600 dark:text-slate-300">{String(lineage.status_verified_at)}</span>
+            </div>
+          )}
+        </div>
+        {trace.dataset && (
+          <div className="mt-3">
+            <Link
+              to={`/datasets/${(trace.dataset as { id?: string }).id ?? ""}`}
+              className="text-xs font-medium text-accent hover:underline"
+            >
+              Promoted to dataset: {(trace.dataset as { name?: string }).name ?? trace.dataset.id} →
+            </Link>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Audit chain (immutable)">
+        <HistoryTimeline recordId={recordId} />
+      </Section>
+    </div>
+  );
+}
+
 export default function RecordDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"overview" | "columns" | "references" | "data" | "details" | "history">("overview");
+  const [tab, setTab] = useState<"overview" | "columns" | "references" | "data" | "details" | "history" | "lineage">("overview");
   const [textEditing, setTextEditing] = useState(false);
   const [textDraft, setTextDraft] = useState('');
   const [textView, setTextView] = useState<'text' | 'markdown'>('markdown');
@@ -191,6 +253,7 @@ export default function RecordDetail() {
         <TabButton active={tab === "data"} onClick={() => setTab("data")}>Data</TabButton>
         <TabButton active={tab === "details"} onClick={() => setTab("details")}>Details</TabButton>
         <TabButton active={tab === "history"} onClick={() => setTab("history")}>History</TabButton>
+        <TabButton active={tab === "lineage"} onClick={() => setTab("lineage")}>Lineage</TabButton>
       </div>
 
       {tab === "details" && (
@@ -362,6 +425,8 @@ export default function RecordDetail() {
           <HistoryTimeline recordId={rec.id} />
         </Section>
       )}
+
+      {tab === "lineage" && <LineagePanel recordId={rec.id} />}
 
       <div className="mt-4 flex justify-end">
         <button

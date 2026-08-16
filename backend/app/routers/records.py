@@ -222,6 +222,8 @@ async def list_records(
     business_to: dt.date | None = Query(default=None),
     created_from: dt.datetime | None = Query(default=None),
     created_to: dt.datetime | None = Query(default=None),
+    edited_from: dt.datetime | None = Query(default=None),
+    edited_to: dt.datetime | None = Query(default=None),
     q: str | None = Query(default=None, max_length=256),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
@@ -240,6 +242,8 @@ async def list_records(
         business_to=business_to,
         created_from=created_from,
         created_to=created_to,
+        edited_from=edited_from,
+        edited_to=edited_to,
         q=q,
     )
     total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
@@ -290,6 +294,8 @@ async def bulk_delete_records(
         business_to=None,
         created_from=None,
         created_to=created_before,
+        edited_from=None,
+        edited_to=None,
         q=None,
     )
     rows = (await session.execute(stmt)).scalars().all()
@@ -331,6 +337,64 @@ async def record_history(
         )
         for e in rows
     ]
+
+
+@router.get("/{record_id}/trace", response_model=schemas.TraceOut)
+async def record_trace(
+    record_id: str,
+    session: AsyncSession = Depends(get_session),
+    _actor: Actor | None = Depends(require_auth_optional),
+) -> schemas.TraceOut:
+    """Full provenance for one record: source/pipeline lineage, the immutable
+    per-record audit chain, and the promoted dataset if it exists."""
+    rec = await session.get(models.Record, record_id)
+    if not rec:
+        raise APIError(404, "not_found", f"record {record_id} not found")
+
+    audit_rows = (
+        (
+            await session.execute(
+                select(models.AuditEvent)
+                .where(models.AuditEvent.record_id == record_id)
+                .order_by(models.AuditEvent.at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    audit = [
+        schemas.AuditEventOut(
+            id=e.id,
+            action=e.action,
+            actor=e.actor,
+            at=e.at,
+            snapshot=e.envelope_snapshot,
+        )
+        for e in audit_rows
+    ]
+
+    dataset = await find_dataset_for_record(session, record_id)
+    env = rec.envelope or {}
+    lineage = {
+        "source": env.get("source") or {},
+        "pipeline": env.get("pipeline") or {},
+        "business": env.get("business") or {},
+        "record": env.get("record") or {},
+        "ingested_at": env.get("record", {}).get("ingested_at"),
+        "status_verified_at": rec.status_verified_at.isoformat() if rec.status_verified_at else None,
+        "source_columns": {
+            "filename": rec.source_filename,
+            "model": rec.source_model,
+            "system": rec.source_system,
+            "page": rec.source_page,
+        },
+    }
+    return schemas.TraceOut(
+        record=crud.to_out(rec),
+        lineage=lineage,
+        audit=audit,
+        dataset=crud.dataset_to_out(dataset) if dataset else None,
+    )
 
 
 @router.patch("/{record_id}", response_model=schemas.RecordOut)

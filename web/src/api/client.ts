@@ -41,6 +41,13 @@ export interface Stats {  total: number;
   per_day: Record<string, number>[];
 }
 
+export interface TraceOut {
+  record: RecordOut;
+  lineage: Record<string, unknown>;
+  audit: AuditEventOut[];
+  dataset: Record<string, unknown> | null;
+}
+
 export interface Meta {
   types: string[];
   domains: string[];
@@ -272,6 +279,7 @@ export const api = {
     http<Page<RecordOut>>(`${API}/records${qs({ ...p })}`),
   getRecord: (id: string) => http<RecordOut>(`${API}/records/${encodeURIComponent(id)}`),
   recordHistory: (id: string) => http<AuditEventOut[]>(`${API}/records/${encodeURIComponent(id)}/history`),
+  recordTrace: (id: string) => http<TraceOut>(`${API}/records/${encodeURIComponent(id)}/trace`),
   patchRecord: (id: string, body: Record<string, unknown>) =>
     http<RecordOut>(`${API}/records/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -281,8 +289,9 @@ export const api = {
   deleteRecord: (id: string) => http<void>(`${API}/records/${encodeURIComponent(id)}`, { method: "DELETE" }),
   stats: () => http<Stats>(`${API}/stats`),
   meta: () => http<Meta>(`${API}/meta`),
-  exportUrl: (format: "csv" | "json", p: QueryParams) =>
+  exportUrl: (format: "csv" | "json" | "jsonl" | "parquet", p: QueryParams) =>
     `${API}/export${qs({ format, ...p })}`,
+  datasetFileUrl: (id: string) => `${API}/datasets/${encodeURIComponent(id)}/file`,
   // ── Romdoul Data Sharing entities ────────────────────────────────────
   changePassword: (body: { current_password: string; new_password: string }) =>
     http<{ ok: boolean }>(`${API}/auth/me/password`, {

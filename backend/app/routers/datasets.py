@@ -11,11 +11,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import models, schemas
+from .. import crud, models, schemas
 from ..audit_log import log_event
 from ..db import get_session
 from ..errors import APIError
@@ -23,32 +23,6 @@ from ..promote import find_dataset_for_record, promote_record_to_dataset
 from ..security import Actor, require_auth, require_auth_optional
 
 router = APIRouter(prefix="/api/v1/datasets", tags=["datasets"])
-
-
-def _out(d: models.Dataset) -> schemas.DatasetOut:
-    return schemas.DatasetOut(
-        id=d.id,
-        record_id=d.record_id,
-        name=d.name,
-        description=d.description,
-        organization_id=d.organization_id,
-        category_id=d.category_id,
-        collection_id=d.collection_id,
-        coverage_start=d.coverage_start,
-        coverage_end=d.coverage_end,
-        frequency=d.frequency,
-        url=d.url,
-        status=d.status,
-        published_at=d.published_at,
-        file_name=d.file_name,
-        file_size=d.file_size,
-        file_type=d.file_type,
-        file_base64=d.file_base64,
-        columns=d.columns,
-        references=d.references,
-        created_at=d.created_at,
-        updated_at=d.updated_at,
-    )
 
 
 @router.get("", response_model=schemas.DatasetPageOut)
@@ -87,7 +61,7 @@ async def list_datasets(
     ).all()
     total = int(total or 0)
     return schemas.DatasetPageOut(
-        items=[_out(d) for d in rows],
+        items=[crud.dataset_to_out(d) for d in rows],
         page=page,
         page_size=page_size,
         total=total,
@@ -106,7 +80,36 @@ async def get_dataset(
         raise APIError(404, "not_found", f"dataset {dataset_id} not found")
     if d.status != "published" and (actor is None or actor.role not in ("admin", "editor")):
         raise APIError(403, "forbidden", "This dataset is not published")
-    return _out(d)
+    return crud.dataset_to_out(d)
+
+
+@router.get("/{dataset_id}/file")
+async def download_dataset_file(
+    dataset_id: str,
+    session: AsyncSession = Depends(get_session),
+    actor: Actor | None = Depends(require_auth_optional),
+) -> Response:
+    """Raw download of a published dataset's embedded file (public). Draft or
+    archived datasets require admin/editor."""
+    d = await session.get(models.Dataset, dataset_id)
+    if not d:
+        raise APIError(404, "not_found", f"dataset {dataset_id} not found")
+    if d.status != "published" and (actor is None or actor.role not in ("admin", "editor")):
+        raise APIError(403, "forbidden", "This dataset is not published")
+    if not d.file_base64:
+        raise APIError(404, "not_found", "This dataset has no embedded file")
+    import base64 as _b64
+
+    try:
+        content = _b64.b64decode(d.file_base64)
+    except Exception as exc:  # noqa: BLE001
+        raise APIError(422, "bad_request", f"dataset file is not valid base64: {exc}") from exc
+    media = d.file_type or "application/octet-stream"
+    return Response(
+        content=content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{d.file_name or dataset_id}"'},
+    )
 
 
 @router.post("", status_code=201, response_model=schemas.DatasetOut)
@@ -142,7 +145,7 @@ async def create_dataset(
     )
     await session.commit()
     await session.refresh(d)
-    return _out(d)
+    return crud.dataset_to_out(d)
 
 
 @router.patch("/{dataset_id}", response_model=schemas.DatasetOut)
@@ -182,7 +185,7 @@ async def update_dataset(
     )
     await session.commit()
     await session.refresh(d)
-    return _out(d)
+    return crud.dataset_to_out(d)
 
 
 @router.post("/from-record/{record_id}", status_code=201, response_model=schemas.DatasetOut)
@@ -206,7 +209,7 @@ async def create_dataset_from_record(
     d = await promote_record_to_dataset(session, rec, actor.label(), auto=False)
     await session.commit()
     await session.refresh(d)
-    return _out(d)
+    return crud.dataset_to_out(d)
 
 
 @router.post("/{dataset_id}/publish", response_model=schemas.DatasetOut)
@@ -228,7 +231,7 @@ async def publish_dataset(
     )
     await session.commit()
     await session.refresh(d)
-    return _out(d)
+    return crud.dataset_to_out(d)
 
 
 @router.post("/{dataset_id}/unpublish", response_model=schemas.DatasetOut)
@@ -250,7 +253,7 @@ async def unpublish_dataset(
     )
     await session.commit()
     await session.refresh(d)
-    return _out(d)
+    return crud.dataset_to_out(d)
 
 
 @router.delete("/{dataset_id}", status_code=204)

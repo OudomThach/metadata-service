@@ -29,6 +29,9 @@ class CaptureOcrIn(BaseModel):
     full_text: str = ""
     result: dict[str, Any] | None = None  # raw engine output (stored as data.json)
     num_pages: int = 1
+    # Traceability: where this extraction came from (batch job id, pipeline run).
+    pipeline: dict[str, Any] | None = None  # {run_id, batch_id, version}
+    source: dict[str, Any] | None = None  # {document_id, model, source_system}
 
 
 def _normalize_table(text: str) -> str:
@@ -91,18 +94,26 @@ async def capture_ocr(
         "num_pages": int(payload.num_pages or 1),
     }
     now = dt.datetime.now(dt.timezone.utc)
+    pipeline = payload.pipeline or {}
+    source = payload.source or {}
+    model = result.get("model") or result.get("decoder") or source.get("model") or "ocr"
+    system = source.get("source_system") or "api"
     record = models.Record(
         id=rid,
         type="document",
         status="raw",
         source_filename=payload.document_name,
-        source_system="api",
-        source_model=result.get("model") or result.get("decoder") or "ocr",
+        source_system=system,
+        source_model=model,
+        pipeline_run_id=pipeline.get("run_id"),
+        pipeline_batch_id=pipeline.get("batch_id"),
+        pipeline_version=pipeline.get("version"),
         data=data,
         envelope={
             "data": data,
             "audit": {"created_at": now.isoformat(), "created_by": actor.label(), "status": "raw", "edit_count": 0},
-            "source": {"filename": payload.document_name, "model": "ocr", "source_system": "api"},
+            "source": {"filename": payload.document_name, "model": model, "source_system": system},
+            "pipeline": pipeline,
         },
         created_by=actor.label(),
     )
@@ -114,7 +125,7 @@ async def capture_ocr(
             action="create",
             entity_type="record",
             entity_id=rid,
-            detail={"document_name": payload.document_name, "via": "capture-ocr"},
+            detail={"document_name": payload.document_name, "via": "capture-ocr", "pipeline": pipeline},
         )
     )
     await session.commit()
