@@ -175,7 +175,7 @@ function LineagePanel({ recordId }: { recordId: string }) {
           <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">Version</span>
             <span className="font-mono text-xs text-slate-600 dark:text-slate-300">{String(pipeline.version ?? "—")}</span>
           </div>
-          {lineage.status_verified_at && (
+          {Boolean(lineage.status_verified_at) && (
             <div className="flex gap-2"><span className="w-32 shrink-0 text-xs text-slate-500">Verified at</span>
               <span className="text-xs text-slate-600 dark:text-slate-300">{String(lineage.status_verified_at)}</span>
             </div>
@@ -184,10 +184,10 @@ function LineagePanel({ recordId }: { recordId: string }) {
         {trace.dataset && (
           <div className="mt-3">
             <Link
-              to={`/datasets/${(trace.dataset as { id?: string }).id ?? ""}`}
+              to={`/datasets/${String((trace.dataset as { id?: string }).id ?? "")}`}
               className="text-xs font-medium text-accent hover:underline"
             >
-              Promoted to dataset: {(trace.dataset as { name?: string }).name ?? trace.dataset.id} →
+              Promoted to dataset: {String((trace.dataset as { name?: string }).name ?? trace.dataset.id)} →
             </Link>
           </div>
         )}
